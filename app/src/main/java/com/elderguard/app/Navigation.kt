@@ -12,6 +12,7 @@ import com.elderguard.app.theme.sharedAxisForward
 import com.elderguard.app.ui.elder.ElderHomeScreen
 import com.elderguard.app.ui.family.FamilyHomeScreen
 import com.elderguard.app.ui.family.PinGateScreen
+import com.elderguard.app.ui.family.ScanScreen
 import com.elderguard.app.ui.setup.SetupScreen
 import kotlinx.serialization.Serializable
 
@@ -26,6 +27,9 @@ import kotlinx.serialization.Serializable
 
 /** 家人页：总览、可疑应用、守护方式、权限、记录 */
 @Serializable data object FamilyHome : NavKey
+
+/** 手机体检：风险应用 + 系统检查 */
+@Serializable data object Scan : NavKey
 
 @Composable
 fun AppNavigation(setupDone: Boolean) {
@@ -61,7 +65,8 @@ fun AppNavigation(setupDone: Boolean) {
             onCancel = { backStack.removeLastOrNull() },
           )
         }
-        entry<FamilyHome> { FamilyHomeScreen(onBack = { backStack.removeLastOrNull() }) }
+        entry<FamilyHome> { FamilyHomeScreen(onBack = { backStack.removeLastOrNull() }, onOpenScan = { backStack.add(Scan) }) }
+        entry<Scan> { ScanScreen(onBack = { backStack.removeLastOrNull() }) }
       },
   )
 }

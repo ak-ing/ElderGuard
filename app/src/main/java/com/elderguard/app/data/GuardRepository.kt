@@ -4,12 +4,17 @@ import com.elderguard.app.core.Detection
 import com.elderguard.app.core.Trust
 import java.util.Calendar
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 class GuardRepository(private val dao: GuardDao) {
   val verdicts: Flow<Map<String, Trust>> = dao.verdicts().map { list -> list.associate { it.pkg to it.trust } }
 
   fun recentEvents(limit: Int = 50): Flow<List<GuardEvent>> = dao.recent(limit)
+
+  /** 近 7 天每个元凶的骚扰次数（体检用） */
+  suspend fun culpritCounts(): Map<String, Int> =
+    culpritRanking().first().associate { it.culpritPkg to it.count }
 
   /** 某个 App 最近的骚扰记录，用于向家人说明它做了什么 */
   fun eventsOf(pkg: String, limit: Int = 5): Flow<List<GuardEvent>> = dao.eventsOf(pkg, limit)

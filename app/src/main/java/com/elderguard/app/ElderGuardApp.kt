@@ -6,8 +6,10 @@ import com.elderguard.app.core.GuardRules
 import com.elderguard.app.data.GuardDatabase
 import com.elderguard.app.data.GuardRepository
 import com.elderguard.app.data.SettingsRepository
+import com.elderguard.app.guard.HealthCheckWorker
 import com.elderguard.app.privileged.PrivilegedExecutor
 import com.elderguard.app.privileged.ShizukuExecutor
+import com.elderguard.app.scan.AppScanner
 import com.elderguard.app.system.AppInfoResolver
 import com.elderguard.app.system.PermissionChecker
 import kotlinx.coroutines.CoroutineScope
@@ -21,6 +23,7 @@ class ElderGuardApp : Application() {
   override fun onCreate() {
     super.onCreate()
     container = AppContainer(this)
+    HealthCheckWorker.schedule(this)
   }
 }
 
@@ -33,6 +36,7 @@ class AppContainer(context: Context) {
   val permissions = PermissionChecker(context)
   val appInfo = AppInfoResolver(context)
   val privileged: PrivilegedExecutor = ShizukuExecutor(context)
+  val scanner: AppScanner by lazy { AppScanner(context, rules, appInfo, guardRepository) }
 }
 
 val Context.container: AppContainer

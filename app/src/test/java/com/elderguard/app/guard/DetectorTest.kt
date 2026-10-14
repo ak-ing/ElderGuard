@@ -104,6 +104,17 @@ class DetectorTest {
   }
 
   @Test
+  fun popupAgainAfterBeingSentHome_isStillDetected() {
+    detector.onForegroundChanged("launcher", null)
+    advance(60_000)
+    assertEquals(EventType.UNSOLICITED_LAUNCH, detector.onForegroundChanged("com.ad.cleaner", null)!!.type)
+    advance(800) // 守护执行回桌面
+    assertNull(detector.onForegroundChanged("launcher", null))
+    advance(60_000) // 它又自己弹出来：此时它是「上一个 App」，不能当成用户按返回回到它
+    assertEquals(EventType.UNSOLICITED_LAUNCH, detector.onForegroundChanged("com.ad.cleaner", null)!!.type)
+  }
+
+  @Test
   fun protectedAndTrustedPackages_areExempt() {
     detector.verdicts = mapOf("com.bank" to Trust.TRUSTED)
     detector.onForegroundChanged("launcher", null)

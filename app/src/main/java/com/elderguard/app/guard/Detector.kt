@@ -22,6 +22,13 @@ class Detector(private val rules: GuardRules, private val clock: () -> Long) {
   private var unlockedAt = Long.MIN_VALUE / 2
   /** 当前前台 App */
   private var current: String? = null
+
+  /** 最近被判为骚扰的前台包名 → 时间 */
+  private val lastDetectedAt = HashMap<String, Long>()
+
+  /** 当前前台 App（供处理后核对「返回」是否生效） */
+  val currentPackage: String?
+    get() = current
   /** 当前前台之前的那个 App，用于识别「按返回键回到上一个 App」 */
   private var previous: String? = null
 
@@ -41,22 +48,27 @@ class Detector(private val rules: GuardRules, private val clock: () -> Long) {
     previous = from
     current = pkg
 
-    if (isExempt(pkg)) return null
+    // 服务刚启动时看到的第一个前台没有上下文可比，不判定
+    if (from == null || isExempt(pkg)) return null
     val now = clock()
     if (now - lastInteractionAt <= rules.interactionWindowMs) return null
 
     val culpritOfJump = from?.takeUnless { isExempt(it) } ?: pkg
-    return when {
+    // 刚被判为弹窗的 App 再次出现，不能按「返回上一个 App」放过，否则反复弹出的广告每隔一次就漏掉
+    val recentlyFlagged = now - (lastDetectedAt[pkg] ?: Long.MIN_VALUE / 2) <= SUSPECT_MEMORY_MS
+    val detection = when {
       pkg in rules.quickAppEngines ->
         Detection(EventType.QUICK_APP_LAUNCH, culpritOfJump, pkg, cls, autoBlockable = true)
       pkg in rules.appStores ->
         Detection(EventType.STORE_REDIRECT, culpritOfJump, pkg, cls, autoBlockable = true)
       // 用户按返回键回到上一个 App 不会产生点击事件，不能当成弹窗
-      returnedBack -> null
+      returnedBack && !recentlyFlagged -> null
       now - unlockedAt <= rules.unlockWindowMs ->
         Detection(EventType.UNLOCK_POPUP, pkg, pkg, cls, autoBlockable = isFlagged(pkg))
       else -> Detection(EventType.UNSOLICITED_LAUNCH, pkg, pkg, cls, autoBlockable = isFlagged(pkg))
     }
+    if (detection != null) lastDetectedAt[detection.targetPkg] = now
+    return detection
   }
 
   /** 通知判定：可疑关键词，或非来电/闹钟却带全屏意图 */
@@ -70,6 +82,10 @@ class Detector(private val rules: GuardRules, private val clock: () -> Long) {
   }
 
   private fun isFlagged(pkg: String) = verdicts[pkg] == Trust.FLAGGED
+
+  private companion object {
+    const val SUSPECT_MEMORY_MS = 30 * 60 * 1000L
+  }
 
   private fun isExempt(pkg: String) =
     pkg == selfPackage || pkg in rules.protectedPackages || pkg in systemPackages || verdicts[pkg] == Trust.TRUSTED

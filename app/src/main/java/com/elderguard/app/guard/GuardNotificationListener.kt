@@ -1,7 +1,10 @@
 package com.elderguard.app.guard
 
 import android.app.Notification
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.widget.Toast
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.elderguard.app.container
@@ -23,7 +26,15 @@ class GuardNotificationListener : NotificationListenerService() {
     scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val c = container
     detector = Detector(c.rules, SystemClock::elapsedRealtime).apply { selfPackage = packageName }
-    responder = Responder(applicationContext, c.guardRepository, scope, c.rules.autoActionCooldownMs)
+    responder =
+      Responder(
+        c.guardRepository,
+        scope,
+        c.rules.autoActionCooldownMs,
+        isInCall = { isInCall(this) },
+        // 通知监听不能画无障碍浮层，用 Toast 提示
+        hint = { text -> Handler(Looper.getMainLooper()).post { Toast.makeText(applicationContext, text, Toast.LENGTH_SHORT).show() } },
+      )
     scope.launch { c.guardRepository.verdicts.collect { detector.verdicts = it } }
     scope.launch { c.settings.guardMode.collect { responder.mode = it } }
   }
