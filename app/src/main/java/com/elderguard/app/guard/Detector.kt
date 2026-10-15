@@ -46,17 +46,22 @@ class Detector(private val rules: GuardRules, private val clock: () -> Long) {
   /** 前台 Activity 切换。返回 null 表示正常切换。 */
   fun onForegroundChanged(pkg: String, cls: String?): Detection? {
     val from = current
+    // Shizuku 授权弹窗：只有家人开着维护模式时才放行，否则不论有没有点击都挡掉，防止长辈被诱导点「允许」。
+    // 要在「前台没变」的判断之前：从 Shizuku 管理器里弹出的授权框和管理器同包
+    if (pkg == ShizukuExecutor.SHIZUKU_PACKAGE && cls == ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY) {
+      if (pkg != from) {
+        previous = from
+        current = pkg
+      }
+      if (privilegeRequestsAllowed()) return null
+      val requester = from?.takeUnless { it == pkg || it == selfPackage || it in rules.protectedPackages || it in systemPackages } ?: pkg
+      return Detection(EventType.PRIVILEGE_REQUEST, requester, pkg, cls, autoBlockable = true)
+    }
+
     if (pkg == from) return null
     val returnedBack = pkg == previous
     previous = from
     current = pkg
-
-    // Shizuku 授权弹窗：只有家人开着维护模式时才放行，否则不论有没有点击都挡掉，防止长辈被诱导点「允许」
-    if (pkg == ShizukuExecutor.SHIZUKU_PACKAGE && cls == ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY) {
-      if (privilegeRequestsAllowed()) return null
-      val requester = from?.takeUnless { it == selfPackage || it in rules.protectedPackages || it in systemPackages } ?: pkg
-      return Detection(EventType.PRIVILEGE_REQUEST, requester, pkg, cls, autoBlockable = true)
-    }
 
     // 服务刚启动时看到的第一个前台没有上下文可比，不判定
     if (from == null || isExempt(pkg)) return null

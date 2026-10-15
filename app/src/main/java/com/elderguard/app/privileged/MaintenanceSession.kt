@@ -35,7 +35,7 @@ enum class AppAction(val title: String, val supporting: String, val done: String
 /**
  * 维护模式：家人临时借助 Shizuku 获得 adb shell 权限，直接处置流氓应用。
  * 用完即关：结束时（手动、30 分钟无操作、或 App 进程被杀后下次启动时）关闭无线调试并释放高权限进程。
- * 维护模式之外，任何应用（包括本 App）发起的 Shizuku 授权都会被守护挡掉，见 Detector。
+ * 维护模式之外，Shizuku 授权弹窗都会被守护挡掉（本 App 刚发起的除外），见 Detector。
  */
 class MaintenanceSession(
   private val context: Context,

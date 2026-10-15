@@ -1,7 +1,6 @@
 package com.elderguard.app.system
 
 import android.Manifest
-import android.app.AppOpsManager
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
@@ -10,7 +9,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
-import android.os.Process
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -18,7 +16,6 @@ import com.elderguard.app.guard.GuardAccessibilityService
 
 enum class PermissionKind(val title: String, val reason: String, val required: Boolean) {
   ACCESSIBILITY("无障碍服务", "发现弹窗、识别元凶、自动挡掉，核心能力", required = true),
-  USAGE_ACCESS("使用情况访问", "查看 App 前后台切换记录，让元凶判断更准", required = false),
   NOTIFICATION_LISTENER("通知使用权", "发现假病毒、假中奖之类的通知", required = false),
   POST_NOTIFICATIONS("发送通知", "守护停止时提醒家人", required = false),
   BATTERY("不限制耗电", "防止系统省电时把守护关掉", required = false),
@@ -34,7 +31,6 @@ class PermissionChecker(private val context: Context) {
   fun isGranted(kind: PermissionKind): Boolean? =
     when (kind) {
       PermissionKind.ACCESSIBILITY -> isAccessibilityEnabled()
-      PermissionKind.USAGE_ACCESS -> hasUsageAccess()
       PermissionKind.NOTIFICATION_LISTENER ->
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
       PermissionKind.POST_NOTIFICATIONS ->
@@ -50,18 +46,6 @@ class PermissionChecker(private val context: Context) {
     val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
     val self = ComponentName(context, GuardAccessibilityService::class.java)
     return enabled.split(':').any { ComponentName.unflattenFromString(it) == self }
-  }
-
-  private fun hasUsageAccess(): Boolean {
-    val appOps = context.getSystemService(AppOpsManager::class.java)
-    val mode =
-      if (Build.VERSION.SDK_INT >= 29) {
-        appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
-      } else {
-        @Suppress("DEPRECATION")
-        appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
-      }
-    return mode == AppOpsManager.MODE_ALLOWED
   }
 }
 
@@ -85,8 +69,6 @@ object SettingsNavigator {
             }
             add(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
           }
-        PermissionKind.USAGE_ACCESS ->
-          listOf(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, pkgUri), Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         PermissionKind.NOTIFICATION_LISTENER -> listOf(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         PermissionKind.POST_NOTIFICATIONS ->
           listOf(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))

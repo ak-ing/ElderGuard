@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Accessibility
-import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Campaign
@@ -152,7 +151,6 @@ val PermissionKind.icon: ImageVector
   get() =
     when (this) {
       PermissionKind.ACCESSIBILITY -> Icons.Rounded.Accessibility
-      PermissionKind.USAGE_ACCESS -> Icons.Rounded.BarChart
       PermissionKind.NOTIFICATION_LISTENER -> Icons.Rounded.NotificationsActive
       PermissionKind.POST_NOTIFICATIONS -> Icons.Rounded.NotificationAdd
       PermissionKind.BATTERY -> Icons.Rounded.BatteryChargingFull

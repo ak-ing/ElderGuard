@@ -146,6 +146,16 @@ class DetectorTest {
   }
 
   @Test
+  fun shizukuPermissionDialog_insideShizukuManager_isBlocked() {
+    detector.onForegroundChanged("launcher", null)
+    detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, "moe.shizuku.manager.MainActivity")
+    detector.onUserInteraction()
+    val d = detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY)!!
+    assertEquals(EventType.PRIVILEGE_REQUEST, d.type)
+    assertEquals("看不出是谁发起的，记在 Shizuku 名下", ShizukuExecutor.SHIZUKU_PACKAGE, d.culpritPkg)
+  }
+
+  @Test
   fun shizukuPermissionDialog_allowedDuringMaintenance() {
     detector.privilegeRequestsAllowed = { true }
     detector.onForegroundChanged("launcher", null)
