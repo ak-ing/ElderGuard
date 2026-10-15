@@ -30,10 +30,16 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.GppBad
 import androidx.compose.material.icons.rounded.HealthAndSafety
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import com.elderguard.app.privileged.AppAction
+import com.elderguard.app.ui.common.clockTime
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -97,7 +103,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-data class CulpritRow(val stat: CulpritStat, val label: String, val trust: Trust?, val installed: Boolean)
+data class CulpritRow(val stat: CulpritStat, val label: String, val trust: Trust?, val installed: Boolean, val frozen: Boolean)
 
 data class EventRow(val event: GuardEvent, val culpritLabel: String, val targetLabel: String)
 
@@ -110,6 +116,8 @@ data class FamilyState(
   val culprits: List<CulpritRow>,
   val events: List<EventRow>,
   val privilege: PrivilegeStatus,
+  /** 维护模式自动结束时间；null 表示未在维护 */
+  val maintenanceEndsAt: Long?,
 ) {
   val requiredMissing: Boolean
     get() = permissions.any { it.kind.required && it.granted != true }
@@ -117,15 +125,16 @@ data class FamilyState(
 
 class FamilyViewModel(private val c: AppContainer) : ViewModel() {
   private val permissions = MutableStateFlow(c.permissions.snapshot())
-  private val privilege = MutableStateFlow(c.privileged.status())
+  val actions = ActionRunner(c, viewModelScope)
 
   private val culprits =
-    combine(c.guardRepository.culpritRanking(), c.guardRepository.verdicts) { ranking, verdicts ->
+    combine(c.guardRepository.culpritRanking(), c.guardRepository.verdicts, actions.revision) { ranking, verdicts, _ ->
       // 被标记过但最近没有骚扰的 App 也要列出来，方便撤销结论
       val ranked = ranking.map { it.culpritPkg }.toSet()
       val idle = verdicts.keys.filterNot { it in ranked }.map { CulpritStat(it, 0, 0) }
       (ranking + idle).map {
-        CulpritRow(it, c.appInfo.label(it.culpritPkg), verdicts[it.culpritPkg], c.appInfo.isInstalled(it.culpritPkg))
+        val pkg = it.culpritPkg
+        CulpritRow(it, c.appInfo.label(pkg), verdicts[pkg], c.appInfo.isInstalled(pkg), c.appInfo.isFrozen(pkg))
       }
     }
 
@@ -139,20 +148,23 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
       FamilyStats(enabled && running, rows.sumOf { it.stat.count }, handled, rows.count { it.trust == Trust.FLAGGED })
     }
 
+  private val maintenance = combine(c.privileged.status, c.maintenance.endsAt, ::Pair)
+
   val state =
-    combine(stats, permissions, c.settings.guardMode, culprits, combine(c.guardRepository.recentEvents(), privilege, ::Pair)) {
+    combine(stats, permissions, c.settings.guardMode, culprits, combine(c.guardRepository.recentEvents(), maintenance, ::Pair)) {
         stats,
         perms,
         mode,
         rows,
-        (events, priv) ->
+        (events, maint) ->
         FamilyState(
           stats = stats,
           permissions = perms,
           mode = mode,
           culprits = rows,
           events = events.map { EventRow(it, c.appInfo.label(it.culpritPkg), c.appInfo.label(it.targetPkg)) },
-          privilege = priv,
+          privilege = maint.first,
+          maintenanceEndsAt = maint.second,
         )
       }
       // 应用名、是否已安装都要查 PackageManager，放到后台线程组装
@@ -161,14 +173,12 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
 
   fun refresh() {
     permissions.value = c.permissions.snapshot()
-    privilege.value = c.privileged.status()
+    c.privileged.refresh()
   }
 
   fun setMode(mode: GuardMode) = viewModelScope.launch { c.settings.setGuardMode(mode) }
 
   fun setTrust(pkg: String, trust: Trust?) = viewModelScope.launch { c.guardRepository.setTrust(pkg, trust) }
-
-  fun requestPrivilege() = c.privileged.requestPermission()
 }
 
 internal val ContentMaxWidth = 720.dp
@@ -176,7 +186,13 @@ internal val ItemModifier = Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FamilyHomeScreen(onBack: () -> Unit, onOpenScan: () -> Unit, modifier: Modifier = Modifier) {
+fun FamilyHomeScreen(
+  onBack: () -> Unit,
+  onOpenScan: () -> Unit,
+  onOpenMaintenance: () -> Unit,
+  onOpenReport: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
   val context = LocalContext.current
   val container = context.container
   val vm = viewModel { FamilyViewModel(container) }
@@ -188,11 +204,18 @@ fun FamilyHomeScreen(onBack: () -> Unit, onOpenScan: () -> Unit, modifier: Modif
   val openPermission = rememberPermissionOpener(onResult = vm::refresh)
   val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
   var selected by remember { mutableStateOf<CulpritRow?>(null) }
+  val snackbar = remember { SnackbarHostState() }
+  ShowMessages(vm.actions.messages, snackbar)
 
   BoxWithConstraints(modifier.fillMaxSize()) {
     Scaffold(
       Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-      topBar = { AlignedLargeTopAppBar("家人页", onBack, maxWidth, ContentMaxWidth + 32.dp, scrollBehavior) },
+      topBar = {
+        AlignedLargeTopAppBar("家人页", onBack, maxWidth, ContentMaxWidth + 32.dp, scrollBehavior) {
+          IconButton(onClick = onOpenReport) { Icon(Icons.Rounded.Share, contentDescription = "分享报告") }
+        }
+      },
+      snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
       val s = state ?: return@Scaffold
       LazyColumn(
@@ -224,7 +247,7 @@ fun FamilyHomeScreen(onBack: () -> Unit, onOpenScan: () -> Unit, modifier: Modif
         }
 
         sectionHeader("maintHeader", "维护模式")
-        item(key = "maint") { MaintenanceItem(s.privilege, vm::requestPrivilege, ItemModifier.animateItem()) }
+        item(key = "maint") { MaintenanceItem(s.privilege, s.maintenanceEndsAt, onOpenMaintenance, ItemModifier.animateItem()) }
 
         sectionHeader("eventsHeader", "最近记录")
         if (s.events.isEmpty()) {
@@ -238,7 +261,16 @@ fun FamilyHomeScreen(onBack: () -> Unit, onOpenScan: () -> Unit, modifier: Modif
     }
   }
 
-  selected?.let { row -> CulpritSheet(row, onDismiss = { selected = null }, onTrust = { vm.setTrust(row.stat.culpritPkg, it) }) }
+  selected?.let { row ->
+    val revision by vm.actions.revision.collectAsStateWithLifecycle()
+    CulpritSheet(
+      row,
+      maintenanceActions = rememberMaintenanceActions(row.stat.culpritPkg, revision),
+      onDismiss = { selected = null },
+      onTrust = { vm.setTrust(row.stat.culpritPkg, it) },
+      onAction = { vm.actions.run(row.stat.culpritPkg, row.label, it) },
+    )
+  }
 }
 
 internal fun LazyListScope.sectionHeader(key: String, title: String, supporting: String? = null) {
@@ -299,7 +331,7 @@ private fun ScanEntry(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun CulpritItem(row: CulpritRow, shape: Shape, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun CulpritItem(row: CulpritRow, shape: Shape, onClick: () -> Unit, modifier: Modifier = Modifier) {
   Surface(modifier.padding(vertical = 1.dp), shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
     ListItem(
       modifier = Modifier.clickable(onClick = onClick),
@@ -315,13 +347,19 @@ private fun CulpritItem(row: CulpritRow, shape: Shape, onClick: () -> Unit, modi
           maxLines = 1,
         )
       },
-      trailingContent = { VerdictLabel(row.trust, row.installed) },
+      trailingContent = { VerdictLabel(row.trust, row.installed, row.frozen) },
     )
   }
 }
 
 @Composable
-private fun CulpritSheet(row: CulpritRow, onDismiss: () -> Unit, onTrust: (Trust?) -> Unit) {
+internal fun CulpritSheet(
+  row: CulpritRow,
+  maintenanceActions: List<AppAction>,
+  onDismiss: () -> Unit,
+  onTrust: (Trust?) -> Unit,
+  onAction: (AppAction) -> Unit,
+) {
   val context = LocalContext.current
   val events by
     remember(row.stat.culpritPkg) { context.container.guardRepository.eventsOf(row.stat.culpritPkg) }
@@ -336,6 +374,9 @@ private fun CulpritSheet(row: CulpritRow, onDismiss: () -> Unit, onTrust: (Trust
     onTrust = onTrust,
     onUninstall = { SettingsNavigator.requestUninstall(context, row.stat.culpritPkg) },
     onDetails = { SettingsNavigator.openAppDetails(context, row.stat.culpritPkg) },
+    frozen = row.frozen,
+    maintenanceActions = maintenanceActions,
+    onAction = onAction,
   ) {
     if (events.isNotEmpty()) {
       SheetSectionTitle("它做了什么")
@@ -402,15 +443,32 @@ private fun PermissionGroup(
 }
 
 @Composable
-private fun MaintenanceItem(status: PrivilegeStatus, onRequest: () -> Unit, modifier: Modifier = Modifier) {
-  Surface(modifier, shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+private fun MaintenanceItem(status: PrivilegeStatus, endsAt: Long?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+  val active = endsAt != null
+  Surface(
+    modifier,
+    shape = MaterialTheme.shapes.large,
+    color = if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+  ) {
     ListItem(
-      modifier = if (status == PrivilegeStatus.NEEDS_PERMISSION) Modifier.clickable(onClick = onRequest) else Modifier,
+      modifier = Modifier.clickable(onClick = onClick),
       colors = groupListItemColors(),
-      leadingContent = { TonalIcon(Icons.Rounded.Build) },
-      headlineContent = { Text("一键清理（开发中）") },
-      supportingContent = { Text("借助 Shizuku 直接收回悬浮窗、冻结流氓应用，用完自动关闭无线调试") },
-      trailingContent = { StatusBadge(status.label, if (status == PrivilegeStatus.READY) BadgeTone.GOOD else BadgeTone.NEUTRAL) },
+      leadingContent = {
+        // 维护中卡片本身是 secondaryContainer，图标底色换成 primary 才看得出来
+        if (active) TonalIcon(Icons.Rounded.Build, container = MaterialTheme.colorScheme.primary, content = MaterialTheme.colorScheme.onPrimary)
+        else TonalIcon(Icons.Rounded.Build)
+      },
+      headlineContent = { Text(if (active) "正在维护" else "直接处理流氓应用") },
+      supportingContent = {
+        Text(
+          if (endsAt != null) "点开可疑应用即可冻结、卸载 · ${clockTime(endsAt)} 自动结束"
+          else "借助 Shizuku 直接冻结、卸载、收回权限，用完自动关闭无线调试"
+        )
+      },
+      trailingContent = {
+        if (active) StatusBadge("维护中", BadgeTone.GOOD)
+        else StatusBadge(status.label, if (status == PrivilegeStatus.READY) BadgeTone.GOOD else BadgeTone.NEUTRAL)
+      },
     )
   }
 }

@@ -57,6 +57,17 @@
             </intent-filter>
         </service>
 
+        <!-- 分享报告图片 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- Shizuku 授权回调通道，仅维护模式使用 -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"

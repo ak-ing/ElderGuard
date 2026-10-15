@@ -30,6 +30,9 @@ class AppInfoResolver(private val context: Context) {
 
   fun isInstalled(pkg: String): Boolean = runCatching { pm.getApplicationInfo(pkg, 0) }.isSuccess
 
+  /** 被维护模式冻结（pm disable-user） */
+  fun isFrozen(pkg: String): Boolean = runCatching { !pm.getApplicationInfo(pkg, 0).enabled }.getOrDefault(false)
+
   /** 窗口切换事件里的 className 是否真的是 Activity（过滤对话框、Toast、悬浮层） */
   fun isActivity(pkg: String, cls: String): Boolean =
     activityCache.getOrPut("$pkg/$cls") {

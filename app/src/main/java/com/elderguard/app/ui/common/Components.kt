@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.NotificationAdd
 import androidx.compose.material.icons.rounded.NotificationsActive
@@ -166,6 +167,7 @@ val EventType.icon: ImageVector
       EventType.QUICK_APP_LAUNCH -> Icons.Rounded.Bolt
       EventType.STORE_REDIRECT -> Icons.Rounded.Storefront
       EventType.SUSPICIOUS_NOTIFICATION -> Icons.Rounded.NotificationsActive
+      EventType.PRIVILEGE_REQUEST -> Icons.Rounded.Key
     }
 
 /** 打开某项权限：发送通知走运行时申请，其余跳系统设置页 */

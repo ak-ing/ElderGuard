@@ -3,6 +3,7 @@ package com.elderguard.app.guard
 import com.elderguard.app.core.EventType
 import com.elderguard.app.core.GuardRules
 import com.elderguard.app.core.Trust
+import com.elderguard.app.privileged.ShizukuExecutor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -130,5 +131,25 @@ class DetectorTest {
     assertEquals(EventType.SUSPICIOUS_NOTIFICATION, detector.onNotification("com.ad", "看看", true, false)!!.type)
     assertNull(detector.onNotification("com.clock", "闹钟", true, true))
     assertNull(detector.onNotification("com.tencent.mm", "晚上吃什么", false, false))
+  }
+
+  @Test
+  fun shizukuPermissionDialog_isBlockedEvenRightAfterClick() {
+    detector.verdicts = mapOf("com.trusted.tool" to Trust.TRUSTED)
+    detector.onForegroundChanged("launcher", null)
+    detector.onForegroundChanged("com.trusted.tool", null)
+    detector.onUserInteraction()
+    val d = detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY)!!
+    assertEquals(EventType.PRIVILEGE_REQUEST, d.type)
+    assertEquals("发起请求的 App 即使被信任也要记为元凶", "com.trusted.tool", d.culpritPkg)
+    assertTrue(d.autoBlockable)
+  }
+
+  @Test
+  fun shizukuPermissionDialog_allowedDuringMaintenance() {
+    detector.privilegeRequestsAllowed = { true }
+    detector.onForegroundChanged("launcher", null)
+    detector.onForegroundChanged("self", null)
+    assertNull(detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY))
   }
 }

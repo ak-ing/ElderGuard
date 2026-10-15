@@ -17,11 +17,28 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.rounded.AcUnit
+import androidx.compose.material.icons.rounded.Accessibility
+import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Inbox
+import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.WbSunny
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.elderguard.app.privileged.AppAction
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -108,10 +125,11 @@ fun IconLabel(icon: ImageVector, text: String, color: Color) {
 
 /** 家人对某个 App 的结论 */
 @Composable
-fun VerdictLabel(trust: Trust?, installed: Boolean) {
+fun VerdictLabel(trust: Trust?, installed: Boolean, frozen: Boolean = false) {
   val scheme = MaterialTheme.colorScheme
   when {
     !installed -> IconLabel(Icons.Rounded.DeleteOutline, "已卸载", scheme.onSurfaceVariant)
+    frozen -> IconLabel(Icons.Rounded.AcUnit, "已冻结", scheme.onSurfaceVariant)
     trust == Trust.FLAGGED -> IconLabel(Icons.Rounded.Block, "已拦截", scheme.error)
     trust == Trust.TRUSTED -> IconLabel(Icons.Rounded.CheckCircle, "已信任", scheme.primary)
     else -> IconLabel(Icons.AutoMirrored.Rounded.HelpOutline, "待确认", AppTheme.extendedColors.warning)
@@ -165,7 +183,7 @@ private fun SheetAction(icon: ImageVector, title: String, supporting: String?, t
 
 /**
  * 应用处理面板：表头（图标、名称、结论）→ 说明区 [details]（「它做了什么」「为什么可疑」）→ 处理动作。
- * 可疑应用列表和体检结果共用。
+ * 可疑应用列表、体检结果、维护模式共用。[maintenanceActions] 非空表示正在维护，可以直接执行处置。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -179,27 +197,51 @@ fun AppSheet(
   onTrust: (Trust?) -> Unit,
   onUninstall: () -> Unit,
   onDetails: () -> Unit,
+  frozen: Boolean = false,
+  maintenanceActions: List<AppAction> = emptyList(),
+  onAction: (AppAction) -> Unit = {},
   details: @Composable ColumnScope.() -> Unit,
 ) {
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
   val scope = rememberCoroutineScope()
+  var confirmUninstall by remember { mutableStateOf(false) }
   fun act(block: () -> Unit) {
     block()
     scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() }
   }
 
   ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-    Column(Modifier.padding(bottom = 24.dp)) {
+    // 维护模式下动作较多，横屏时可能超出一屏
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
       ListItem(
         colors = groupListItemColors(),
         leadingContent = { AppIcon(pkg, 48.dp) },
         headlineContent = { Text(label, style = MaterialTheme.typography.titleLarge) },
         supportingContent = { Text(subtitle) },
-        trailingContent = { VerdictLabel(trust, installed) },
+        trailingContent = { VerdictLabel(trust, installed, frozen) },
       )
-      details()
-      Spacer(Modifier.height(8.dp))
-      SheetSectionTitle("处理")
+      // 维护中家人是来动手的：处置放在说明之前，不用先滚过一长串记录
+      val maintaining = installed && maintenanceActions.isNotEmpty()
+      if (!maintaining) {
+        details()
+        Spacer(Modifier.height(8.dp))
+      }
+      if (maintaining) {
+        SheetSectionTitle("直接处理 · 维护模式")
+        maintenanceActions.forEach { action ->
+          val destructive = action == AppAction.UNINSTALL
+          SheetAction(
+            action.icon,
+            action.title,
+            action.supporting,
+            tint = if (destructive) MaterialTheme.colorScheme.error else Color.Unspecified,
+          ) {
+            if (destructive) confirmUninstall = true else act { onAction(action) }
+          }
+        }
+        Spacer(Modifier.height(8.dp))
+      }
+      SheetSectionTitle(if (maintaining) "标记" else "处理")
       if (installed) {
         if (trust != Trust.FLAGGED) {
           SheetAction(Icons.Rounded.Block, "标记为流氓应用", "以后它的弹窗会被自动拦截") { act { onTrust(Trust.FLAGGED) } }
@@ -211,16 +253,57 @@ fun AppSheet(
           SheetAction(Icons.AutoMirrored.Rounded.Undo, "撤销标记", "恢复为待确认") { act { onTrust(null) } }
         }
         SheetAction(Icons.Rounded.Settings, "应用设置", "关闭通知、悬浮窗等权限") { act(onDetails) }
-        SheetAction(Icons.Rounded.DeleteOutline, "卸载", null, tint = MaterialTheme.colorScheme.error) { act(onUninstall) }
+        if (maintenanceActions.isEmpty()) {
+          SheetAction(Icons.Rounded.DeleteOutline, "卸载", null, tint = MaterialTheme.colorScheme.error) { act(onUninstall) }
+        }
       } else {
         SheetAction(Icons.AutoMirrored.Rounded.Undo, "从列表移除", null) { act { onTrust(null) } }
       }
+      if (maintaining) {
+        Spacer(Modifier.height(8.dp))
+        details()
+      }
     }
+  }
+
+  if (confirmUninstall) {
+    AlertDialog(
+      onDismissRequest = { confirmUninstall = false },
+      icon = { Icon(Icons.Rounded.DeleteForever, contentDescription = null) },
+      title = { Text("卸载「$label」？") },
+      text = { Text("会直接卸载，不再弹出系统确认，它的数据也会一并删除。") },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            confirmUninstall = false
+            act { onAction(AppAction.UNINSTALL) }
+          },
+          colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+        ) {
+          Text("卸载")
+        }
+      },
+      dismissButton = { TextButton(onClick = { confirmUninstall = false }) { Text("取消") } },
+    )
   }
 }
 
+val AppAction.icon: ImageVector
+  get() =
+    when (this) {
+      AppAction.REVOKE_OVERLAY -> Icons.Rounded.Layers
+      AppAction.RESTRICT_BACKGROUND -> Icons.Rounded.Bedtime
+      AppAction.REVOKE_NOTIFICATIONS -> Icons.Rounded.NotificationsOff
+      AppAction.DISABLE_ACCESSIBILITY -> Icons.Rounded.Accessibility
+      AppAction.FREEZE -> Icons.Rounded.AcUnit
+      AppAction.UNFREEZE -> Icons.Rounded.WbSunny
+      AppAction.UNINSTALL -> Icons.Rounded.DeleteForever
+    }
+
 private val timeOfDay = SimpleDateFormat("HH:mm", Locale.CHINA)
 private val dateTime = SimpleDateFormat("M月d日 HH:mm", Locale.CHINA)
+
+fun clockTime(time: Long): String = timeOfDay.format(Date(time))
 
 fun formatTime(time: Long): String {
   val now = Calendar.getInstance()

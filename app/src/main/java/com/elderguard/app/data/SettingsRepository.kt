@@ -3,6 +3,7 @@ package com.elderguard.app.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.elderguard.app.core.GuardMode
@@ -28,6 +29,13 @@ class SettingsRepository(context: Context) {
 
   suspend fun setGuardMode(mode: GuardMode) {
     store.edit { it[GUARD_MODE] = mode.name }
+  }
+
+  /** 维护模式的结束时间（墙上时间）；进程被杀后据此补做收尾 */
+  suspend fun maintenanceEndsAt(): Long? = store.data.first()[MAINTENANCE_ENDS_AT]
+
+  suspend fun setMaintenanceEndsAt(time: Long?) {
+    store.edit { if (time == null) it.remove(MAINTENANCE_ENDS_AT) else it[MAINTENANCE_ENDS_AT] = time }
   }
 
   suspend fun completeSetup() {
@@ -69,5 +77,6 @@ class SettingsRepository(context: Context) {
     val GUARD_MODE = stringPreferencesKey("guard_mode")
     val PIN_HASH = stringPreferencesKey("pin_hash")
     val PIN_SALT = stringPreferencesKey("pin_salt")
+    val MAINTENANCE_ENDS_AT = longPreferencesKey("maintenance_ends_at")
   }
 }

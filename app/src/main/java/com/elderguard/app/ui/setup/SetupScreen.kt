@@ -37,10 +37,12 @@ import androidx.compose.material.icons.automirrored.rounded.ManageSearch
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.HealthAndSafety
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -53,6 +55,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -69,6 +74,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elderguard.app.AppContainer
 import com.elderguard.app.container
 import com.elderguard.app.core.GuardMode
+import com.elderguard.app.core.Trust
+import com.elderguard.app.scan.RiskyApp
+import com.elderguard.app.scan.ScanResult
 import com.elderguard.app.system.PermissionKind
 import com.elderguard.app.system.PermissionState
 import com.elderguard.app.theme.Motion
@@ -78,15 +86,22 @@ import com.elderguard.app.ui.common.PIN_LENGTH
 import com.elderguard.app.ui.common.PermissionRow
 import com.elderguard.app.ui.common.PinDots
 import com.elderguard.app.ui.common.PinPad
+import com.elderguard.app.ui.common.SectionHeader
 import com.elderguard.app.ui.common.TonalIcon
 import com.elderguard.app.ui.common.groupListItemColors
 import com.elderguard.app.ui.common.rememberPermissionOpener
+import com.elderguard.app.ui.common.segmentShape
+import com.elderguard.app.ui.family.CheckItem
+import com.elderguard.app.ui.family.RiskyAppItem
+import com.elderguard.app.ui.family.RiskyAppSheet
+import com.elderguard.app.ui.family.ScanSummary
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class SetupStep { INTRO, SET_PIN, CONFIRM_PIN, PERMISSIONS, MODE }
+enum class SetupStep { INTRO, SET_PIN, CONFIRM_PIN, PERMISSIONS, MODE, CHECKUP }
 
 data class SetupState(
   val step: SetupStep = SetupStep.INTRO,
@@ -97,6 +112,8 @@ data class SetupState(
   val errorTick: Int = 0,
   val permissions: List<PermissionState> = emptyList(),
   val mode: GuardMode = GuardMode.AUTO,
+  /** 首次体检结果；null 表示正在扫描 */
+  val scan: ScanResult? = null,
 ) {
   val requiredGranted: Boolean
     get() = permissions.filter { it.kind.required }.all { it.granted == true }
@@ -141,12 +158,44 @@ class SetupViewModel(private val c: AppContainer) : ViewModel() {
 
   fun selectMode(mode: GuardMode) = _state.update { it.copy(mode = mode) }
 
+  /** 家人正拿着手机，顺手把已经装上的可疑应用清理掉 */
+  fun startCheckup() {
+    goTo(SetupStep.CHECKUP)
+    if (_state.value.scan != null) return
+    viewModelScope.launch {
+      val start = System.currentTimeMillis()
+      val r = c.scanner.scan()
+      delay((MIN_SCAN_MS - (System.currentTimeMillis() - start)).coerceAtLeast(0))
+      _state.update { it.copy(scan = r) }
+    }
+  }
+
+  /** 从系统卸载界面返回后，去掉已经卸载的应用 */
+  fun dropUninstalled() =
+    _state.update { s -> s.copy(scan = s.scan?.let { r -> r.copy(apps = r.apps.filter { c.appInfo.isInstalled(it.pkg) }) }) }
+
+  fun setTrust(pkg: String, trust: Trust?) {
+    viewModelScope.launch { c.guardRepository.setTrust(pkg, trust) }
+    _state.update { s ->
+      s.copy(
+        scan =
+          s.scan?.let { r ->
+            r.copy(apps = if (trust == Trust.TRUSTED) r.apps.filterNot { it.pkg == pkg } else r.apps.map { if (it.pkg == pkg) it.copy(trust = trust) else it })
+          }
+      )
+    }
+  }
+
   fun finish(onDone: () -> Unit) {
     viewModelScope.launch {
       c.settings.setGuardMode(_state.value.mode)
       c.settings.completeSetup()
       onDone()
     }
+  }
+
+  private companion object {
+    const val MIN_SCAN_MS = 900L
   }
 }
 
@@ -158,8 +207,10 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
   val state by vm.state.collectAsStateWithLifecycle()
   LifecycleResumeEffect(Unit) {
     vm.refreshPermissions()
+    vm.dropUninstalled()
     onPauseOrDispose {}
   }
+  var selected by remember { mutableStateOf<RiskyApp?>(null) }
   BackHandler(enabled = state.step != SetupStep.INTRO) { vm.back() }
   val openPermission = rememberPermissionOpener(onResult = vm::refreshPermissions)
   val progress by
@@ -177,7 +228,8 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
         when (state.step) {
           SetupStep.INTRO -> vm.goTo(SetupStep.SET_PIN)
           SetupStep.PERMISSIONS -> vm.goTo(SetupStep.MODE)
-          SetupStep.MODE -> vm.finish(onFinished)
+          SetupStep.MODE -> vm.startCheckup()
+          SetupStep.CHECKUP -> vm.finish(onFinished)
           else -> Unit
         }
       })
@@ -196,8 +248,19 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
           SetupStep.SET_PIN, SetupStep.CONFIRM_PIN -> PinStep(state, vm::onPinInput)
           SetupStep.PERMISSIONS -> PermissionStep(state.permissions, openPermission)
           SetupStep.MODE -> ModeStep(state.mode, vm::selectMode)
+          SetupStep.CHECKUP -> CheckupStep(state.scan, onSelect = { selected = it })
         }
       }
+    }
+  }
+
+  // 列表变化后（标记、卸载）面板里显示最新状态
+  selected?.let { app ->
+    val current = state.scan?.apps?.find { it.pkg == app.pkg }
+    if (current == null) {
+      selected = null
+    } else {
+      RiskyAppSheet(current, onDismiss = { selected = null }, onTrust = { vm.setTrust(current.pkg, it) })
     }
   }
 }
@@ -229,7 +292,8 @@ private fun BottomAction(state: SetupState, onNext: () -> Unit) {
     when (state.step) {
       SetupStep.INTRO -> "开始设置"
       SetupStep.PERMISSIONS -> if (state.requiredGranted) "继续" else "请先开启无障碍服务"
-      SetupStep.MODE -> "完成"
+      SetupStep.MODE -> "继续"
+      SetupStep.CHECKUP -> if (state.scan == null) "跳过，完成设置" else "完成"
       else -> null
     }
   Box(
@@ -325,6 +389,39 @@ private fun PermissionStep(permissions: List<PermissionState>, onOpen: (Permissi
 private fun ModeStep(selected: GuardMode, onSelect: (GuardMode) -> Unit) {
   StepHeader(Icons.Rounded.Tune, "选择守护方式", "之后可以在家人页随时修改。")
   GuardModeOptions(selected, onSelect)
+}
+
+@Composable
+private fun CheckupStep(scan: ScanResult?, onSelect: (RiskyApp) -> Unit) {
+  StepHeader(Icons.Rounded.HealthAndSafety, "首次体检", "看看手机里已经装了哪些可疑应用，趁现在一并处理。也可以跳过，以后在家人页随时体检。")
+  AnimatedContent(
+    scan,
+    contentKey = { it == null },
+    transitionSpec = { fadeIn(tween(Motion.DURATION_MEDIUM)) togetherWith fadeOut(tween(Motion.DURATION_SHORT)) },
+    label = "checkup",
+  ) { r ->
+    if (r == null) {
+      Row(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
+        Spacer(Modifier.width(16.dp))
+        Text("正在检查已安装的应用…", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      }
+    } else {
+      Column {
+        ScanSummary(r, Modifier.fillMaxWidth())
+        if (r.apps.isNotEmpty()) {
+          SectionHeader("风险应用", Modifier.padding(top = 16.dp), "点一下查看原因，可以卸载或标记")
+          r.apps.forEachIndexed { i, app -> RiskyAppItem(app, segmentShape(i, r.apps.size), onClick = { onSelect(app) }) }
+        }
+        // 系统检查只列需要处理的，正常项不占篇幅
+        val issues = r.checks.filterNot { it.ok }
+        if (issues.isNotEmpty()) {
+          SectionHeader("建议处理", Modifier.padding(top = 16.dp))
+          issues.forEachIndexed { i, check -> CheckItem(check, segmentShape(i, issues.size)) }
+        }
+      }
+    }
+  }
 }
 
 val GuardMode.icon: ImageVector

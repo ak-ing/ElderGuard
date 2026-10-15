@@ -7,6 +7,7 @@ import com.elderguard.app.data.GuardDatabase
 import com.elderguard.app.data.GuardRepository
 import com.elderguard.app.data.SettingsRepository
 import com.elderguard.app.guard.HealthCheckWorker
+import com.elderguard.app.privileged.MaintenanceSession
 import com.elderguard.app.privileged.PrivilegedExecutor
 import com.elderguard.app.privileged.ShizukuExecutor
 import com.elderguard.app.scan.AppScanner
@@ -15,6 +16,7 @@ import com.elderguard.app.system.PermissionChecker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class ElderGuardApp : Application() {
   lateinit var container: AppContainer
@@ -24,6 +26,7 @@ class ElderGuardApp : Application() {
     super.onCreate()
     container = AppContainer(this)
     HealthCheckWorker.schedule(this)
+    container.appScope.launch { container.maintenance.recoverAfterRestart() }
   }
 }
 
@@ -36,6 +39,7 @@ class AppContainer(context: Context) {
   val permissions = PermissionChecker(context)
   val appInfo = AppInfoResolver(context)
   val privileged: PrivilegedExecutor = ShizukuExecutor(context)
+  val maintenance = MaintenanceSession(context, privileged, settings, appScope)
   val scanner: AppScanner by lazy { AppScanner(context, rules, appInfo, guardRepository) }
 }
 

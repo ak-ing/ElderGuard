@@ -45,6 +45,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import com.elderguard.app.privileged.AppAction
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -94,6 +97,16 @@ class ScanViewModel(private val c: AppContainer) : ViewModel() {
   /** null 表示正在扫描 */
   private val _result = MutableStateFlow<ScanResult?>(null)
   val result = _result.asStateFlow()
+  val actions = ActionRunner(c, viewModelScope)
+
+  fun perform(app: RiskyApp, action: AppAction) {
+    actions.run(app.pkg, app.label, action) {
+      // 冻结、卸载后它已经无害，从结果里移除
+      if (action == AppAction.FREEZE || action == AppAction.UNINSTALL) {
+        _result.value = _result.value?.let { r -> r.copy(apps = r.apps.filterNot { it.pkg == app.pkg }) }
+      }
+    }
+  }
 
   init {
     scan()
@@ -132,6 +145,8 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
   val result by vm.result.collectAsStateWithLifecycle()
   val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
   var selected by remember { mutableStateOf<RiskyApp?>(null) }
+  val snackbar = remember { SnackbarHostState() }
+  ShowMessages(vm.actions.messages, snackbar)
 
   BoxWithConstraints(modifier.fillMaxSize()) {
     Scaffold(
@@ -141,6 +156,7 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
           IconButton(onClick = vm::scan, enabled = result != null) { Icon(Icons.Rounded.Refresh, contentDescription = "重新体检") }
         }
       },
+      snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
       AnimatedContent(
         targetState = result,
@@ -155,23 +171,44 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
   }
 
   selected?.let { app ->
-    val context = LocalContext.current
-    AppSheet(
-      pkg = app.pkg,
-      label = app.label,
-      subtitle = app.level.label,
-      trust = app.trust,
-      installed = true,
+    val revision by vm.actions.revision.collectAsStateWithLifecycle()
+    RiskyAppSheet(
+      app,
       onDismiss = { selected = null },
       onTrust = { vm.setTrust(app.pkg, it) },
-      onUninstall = { SettingsNavigator.requestUninstall(context, app.pkg) },
-      onDetails = { SettingsNavigator.openAppDetails(context, app.pkg) },
-    ) {
-      SheetSectionTitle("为什么可疑")
-      app.signals.forEach { s ->
-        val detail = if (s == RiskSignal.HARASSMENT) "近 7 天 ${app.harassCount} 次。${s.detail}" else s.detail
-        SheetInfoRow(s.icon, s.title, detail)
-      }
+      maintenanceActions = rememberMaintenanceActions(app.pkg, revision),
+      onAction = { vm.perform(app, it) },
+    )
+  }
+}
+
+/** 风险应用详情：为什么可疑 + 处理；体检页和设置向导共用 */
+@Composable
+fun RiskyAppSheet(
+  app: RiskyApp,
+  onDismiss: () -> Unit,
+  onTrust: (Trust?) -> Unit,
+  maintenanceActions: List<AppAction> = emptyList(),
+  onAction: (AppAction) -> Unit = {},
+) {
+  val context = LocalContext.current
+  AppSheet(
+    pkg = app.pkg,
+    label = app.label,
+    subtitle = app.level.label,
+    trust = app.trust,
+    installed = true,
+    onDismiss = onDismiss,
+    onTrust = onTrust,
+    onUninstall = { SettingsNavigator.requestUninstall(context, app.pkg) },
+    onDetails = { SettingsNavigator.openAppDetails(context, app.pkg) },
+    maintenanceActions = maintenanceActions,
+    onAction = onAction,
+  ) {
+    SheetSectionTitle("为什么可疑")
+    app.signals.forEach { s ->
+      val detail = if (s == RiskSignal.HARASSMENT) "近 7 天 ${app.harassCount} 次。${s.detail}" else s.detail
+      SheetInfoRow(s.icon, s.title, detail)
     }
   }
 }
@@ -199,7 +236,7 @@ private fun Results(r: ScanResult, bottomPadding: androidx.compose.ui.unit.Dp, o
     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = bottomPadding + 24.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
-    item(key = "summary") { Summary(r, ItemModifier.animateItem()) }
+    item(key = "summary") { ScanSummary(r,ItemModifier.animateItem()) }
 
     if (r.apps.isNotEmpty()) {
       sectionHeader("appsHeader", "风险应用", "点一下查看原因并处理")
@@ -216,7 +253,7 @@ private fun Results(r: ScanResult, bottomPadding: androidx.compose.ui.unit.Dp, o
 }
 
 @Composable
-private fun Summary(r: ScanResult, modifier: Modifier = Modifier) {
+fun ScanSummary(r: ScanResult, modifier: Modifier = Modifier) {
   val scheme = MaterialTheme.colorScheme
   val ext = AppTheme.extendedColors
   val high = r.apps.count { it.level == RiskLevel.HIGH }
@@ -249,7 +286,7 @@ private fun Summary(r: ScanResult, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RiskyAppItem(app: RiskyApp, shape: Shape, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun RiskyAppItem(app: RiskyApp, shape: Shape, onClick: () -> Unit, modifier: Modifier = Modifier) {
   Surface(modifier.padding(vertical = 1.dp), shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
     ListItem(
       modifier = Modifier.clickable(onClick = onClick),
@@ -272,7 +309,7 @@ private fun LevelLabel(app: RiskyApp) {
 }
 
 @Composable
-private fun CheckItem(check: SystemCheck, shape: Shape, modifier: Modifier = Modifier) {
+fun CheckItem(check: SystemCheck, shape: Shape, modifier: Modifier = Modifier) {
   val color: Color = if (check.ok) MaterialTheme.colorScheme.primary else AppTheme.extendedColors.warning
   Surface(modifier.padding(vertical = 1.dp), shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
     ListItem(

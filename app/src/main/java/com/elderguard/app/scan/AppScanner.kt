@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import com.elderguard.app.core.GuardRules
 import com.elderguard.app.core.Trust
@@ -85,7 +86,8 @@ class AppScanner(
         pm.getInstalledPackages(PackageManager.GET_PERMISSIONS or PackageManager.GET_PROVIDERS).filter { it.isUserApp() }
       val apps =
         packages
-          .filter { it.packageName != context.packageName && it.packageName !in systemPkgs }
+          // 已冻结的应用不能运行，不再算风险
+          .filter { it.packageName != context.packageName && it.packageName !in systemPkgs && it.applicationInfo?.enabled != false }
           .mapNotNull { info ->
             val pkg = info.packageName
             val trust = verdicts[pkg]
@@ -118,20 +120,29 @@ class AppScanner(
     val resolver = context.contentResolver
     val devOptions = Settings.Global.getInt(resolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1
     val adb = Settings.Global.getInt(resolver, Settings.Global.ADB_ENABLED, 0) == 1
+    val adbWifi = Settings.Global.getInt(resolver, "adb_wifi_enabled", 0) == 1
     val quickApps = rules.quickAppEngines.filter { appInfo.isInstalled(it) }.map { appInfo.label(it) }
-    return listOf(
-      SystemCheck(
-        "开发者选项",
-        if (devOptions) "已打开。部分银行应用会因此提示风险，维护结束后建议关闭" else "已关闭",
-        ok = !devOptions,
-      ),
-      SystemCheck("USB 调试", if (adb) "已打开。不维护时建议关闭，避免被他人连接" else "已关闭", ok = !adb),
-      SystemCheck(
-        "快应用",
-        if (quickApps.isEmpty()) "未发现快应用引擎" else "已安装${quickApps.joinToString("、")}，可能被广告拉起；守护会自动挡掉",
-        ok = true,
-      ),
-    )
+    return buildList {
+      add(
+        SystemCheck(
+          "开发者选项",
+          if (devOptions) "已打开。部分银行应用会因此提示风险，维护结束后建议关闭" else "已关闭",
+          ok = !devOptions,
+        )
+      )
+      add(SystemCheck("USB 调试", if (adb) "已打开。不维护时建议关闭，避免被他人连接" else "已关闭", ok = !adb))
+      // 无线调试 Android 11 才有；同一局域网内的人配对后就能控制手机
+      if (Build.VERSION.SDK_INT >= 30) {
+        add(SystemCheck("无线调试", if (adbWifi) "已打开。维护结束会自动关闭，也可以手动关闭" else "已关闭", ok = !adbWifi))
+      }
+      add(
+        SystemCheck(
+          "快应用",
+          if (quickApps.isEmpty()) "未发现快应用引擎" else "已安装${quickApps.joinToString("、")}，可能被广告拉起；守护会自动挡掉",
+          ok = true,
+        )
+      )
+    }
   }
 
   private fun enabledComponents(key: String): Set<String> =

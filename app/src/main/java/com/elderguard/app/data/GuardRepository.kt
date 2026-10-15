@@ -23,6 +23,9 @@ class GuardRepository(private val dao: GuardDao) {
 
   fun todayHandled(): Flow<Int> = dao.handledSince(startOfToday())
 
+  /** 最近 7 天自动处理的次数（报告用） */
+  fun weekHandled(): Flow<Int> = dao.handledSince(System.currentTimeMillis() - 7 * DAY_MS)
+
   /** 最近 7 天的元凶榜 */
   fun culpritRanking(): Flow<List<CulpritStat>> = dao.culpritRanking(System.currentTimeMillis() - 7 * DAY_MS)
 

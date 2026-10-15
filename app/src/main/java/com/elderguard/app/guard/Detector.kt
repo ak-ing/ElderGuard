@@ -4,6 +4,7 @@ import com.elderguard.app.core.Detection
 import com.elderguard.app.core.EventType
 import com.elderguard.app.core.GuardRules
 import com.elderguard.app.core.Trust
+import com.elderguard.app.privileged.ShizukuExecutor
 
 /**
  * 骚扰判定引擎（纯 Kotlin，不依赖 Android，便于单元测试）。
@@ -17,6 +18,8 @@ class Detector(private val rules: GuardRules, private val clock: () -> Long) {
   @Volatile var verdicts: Map<String, Trust> = emptyMap()
   /** 本 App 包名 */
   var selfPackage: String = ""
+  /** 维护模式中、或本 App 自己刚发起授权时，放行 Shizuku 授权弹窗 */
+  @Volatile var privilegeRequestsAllowed: () -> Boolean = { false }
 
   private var lastInteractionAt = Long.MIN_VALUE / 2
   private var unlockedAt = Long.MIN_VALUE / 2
@@ -48,12 +51,19 @@ class Detector(private val rules: GuardRules, private val clock: () -> Long) {
     previous = from
     current = pkg
 
+    // Shizuku 授权弹窗：只有家人开着维护模式时才放行，否则不论有没有点击都挡掉，防止长辈被诱导点「允许」
+    if (pkg == ShizukuExecutor.SHIZUKU_PACKAGE && cls == ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY) {
+      if (privilegeRequestsAllowed()) return null
+      val requester = from?.takeUnless { it == selfPackage || it in rules.protectedPackages || it in systemPackages } ?: pkg
+      return Detection(EventType.PRIVILEGE_REQUEST, requester, pkg, cls, autoBlockable = true)
+    }
+
     // 服务刚启动时看到的第一个前台没有上下文可比，不判定
     if (from == null || isExempt(pkg)) return null
     val now = clock()
     if (now - lastInteractionAt <= rules.interactionWindowMs) return null
 
-    val culpritOfJump = from?.takeUnless { isExempt(it) } ?: pkg
+    val culpritOfJump = from.takeUnless { isExempt(it) } ?: pkg
     // 刚被判为弹窗的 App 再次出现，不能按「返回上一个 App」放过，否则反复弹出的广告每隔一次就漏掉
     val recentlyFlagged = now - (lastDetectedAt[pkg] ?: Long.MIN_VALUE / 2) <= SUSPECT_MEMORY_MS
     val detection = when {

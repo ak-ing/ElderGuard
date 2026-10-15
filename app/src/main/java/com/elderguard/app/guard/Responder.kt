@@ -28,18 +28,27 @@ class Responder(
 
   fun handle(detection: Detection, act: () -> Boolean) {
     val now = SystemClock.elapsedRealtime()
+    // 索要高级权限后果严重：不论守护方式、冷却、是否通话都要挡
+    val critical = detection.type == EventType.PRIVILEGE_REQUEST
     val shouldAct =
-      mode == GuardMode.AUTO &&
-        detection.autoBlockable &&
-        now - (lastActionAt[detection.culpritPkg] ?: Long.MIN_VALUE / 2) >= cooldownMs &&
-        !isInCall()
+      detection.autoBlockable &&
+        (critical ||
+          mode == GuardMode.AUTO &&
+            now - (lastActionAt[detection.culpritPkg] ?: Long.MIN_VALUE / 2) >= cooldownMs &&
+            !isInCall())
     val handled = shouldAct && act()
     Log.i("ElderGuard", "处理：${detection.culpritPkg} mode=$mode autoBlockable=${detection.autoBlockable} handled=$handled")
     if (handled) {
       lastActionAt[detection.culpritPkg] = now
-      if (now - lastHintAt >= HINT_INTERVAL_MS) {
+      if (critical || now - lastHintAt >= HINT_INTERVAL_MS) {
         lastHintAt = now
-        hint(if (detection.type == EventType.SUSPICIOUS_NOTIFICATION) "已拦下一条可疑通知" else "已帮您挡掉一个广告")
+        hint(
+          when (detection.type) {
+            EventType.SUSPICIOUS_NOTIFICATION -> "已拦下一条可疑通知"
+            EventType.PRIVILEGE_REQUEST -> "已拦下一个危险的授权请求"
+            else -> "已帮您挡掉一个广告"
+          }
+        )
       }
     }
     scope.launch { repository.record(detection, handled) }

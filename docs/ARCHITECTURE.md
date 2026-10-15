@@ -26,8 +26,8 @@
           ③ 开权限清单（逐项跳转设置页，回来自动刷新状态）
                必需：无障碍服务
                推荐：使用情况访问、通知使用权、发送通知、忽略电池优化、厂商自启动
-          ④ 首次体检 ──► 体检报告（风险应用列表）
-          ⑤ 选择守护方式：仅记录 / 自动挡掉（默认）
+          ④ 选择守护方式：仅记录 / 自动挡掉（默认）
+          ⑤ 首次体检：风险应用（可查看原因、卸载、标记）+ 需处理的系统项；可跳过
                 │
                 ▼
        ┌──── 日常守护（常驻，长辈无感）────┐
@@ -116,20 +116,43 @@ Shizuku、开机自启）只在有强信号时计入，避免微信这类正常�
 | 接入了 Shizuku | 声明了 `rikka.shizuku.ShizukuProvider` |
 | 名称像「清理/加速/WiFi/计步/充电/天气」工具 | 关键词规则 |
 
-系统层检查：开发者选项/USB 调试是否开启、是否存在快应用引擎。
+系统层检查：开发者选项 / USB 调试 / 无线调试（Android 11+）是否开启、是否存在快应用引擎。
+已冻结的应用不再列为风险。
 
 ### 1.6 维护模式（增强，临时）
 
 ```
-家人进入维护模式（PIN）
-  └─ 检查 Shizuku：未安装 → 引导下载；未运行 → 引导无线调试启动；未授权 → 请求授权
-       └─ 执行处置：收回悬浮窗 / 禁止后台运行 / 冻结 / 卸载
-            └─ 退出维护模式（手动或 30 分钟超时）：
-                 关闭无线调试（settings put global adb_wifi_enabled 0）
+家人页 → 维护模式
+  └─ 准备三步：安装 Shizuku → 启动（无线调试）→ 授权给本 App（只需一次）
+       └─ 开始维护：可疑应用、手机体检、维护页的应用面板里出现「直接处理」
+            收回悬浮窗 / 禁止后台运行 / 关闭通知 / 关闭它的无障碍 / 冻结·解冻 / 直接卸载（二次确认）
+            └─ 结束维护（手动，或 30 分钟无操作；每次操作顺延）：
+                 关闭无线调试（settings put global adb_wifi_enabled 0）→ 解绑并销毁 shell 进程
 ```
 
-日常守护期间，无障碍服务监视 Shizuku 授权弹窗：申请者不是本 App → 自动拒绝、记录、
-在家人页标红。
+| 处置 | 命令（shell 身份执行） |
+|---|---|
+| 收回悬浮窗 | `appops set <pkg> SYSTEM_ALERT_WINDOW ignore` + `am force-stop` |
+| 禁止后台运行 | `appops set <pkg> RUN_IN_BACKGROUND / RUN_ANY_IN_BACKGROUND ignore` + `am force-stop` |
+| 关闭通知 | 13+：`pm revoke <pkg> POST_NOTIFICATIONS`；更早：`appops set POST_NOTIFICATION ignore` |
+| 关闭它的无障碍 | 从 `enabled_accessibility_services` 里去掉它的组件 |
+| 冻结 / 解冻 | `pm disable-user --user N` / `pm enable --user N` |
+| 直接卸载 | `pm uninstall --user N`（设备管理器应用会失败，提示先取消） |
+
+实现要点：
+- `ShellService` 是手写 Binder（不用 AIDL），由 Shizuku 以 UserService 形式在 shell 进程实例化；
+  销毁事务码是 `16777115`（AIDL 的 16777114 + FIRST_CALL_TRANSACTION），处理错会导致进程残留。
+- 维护结束时间写入 DataStore。App 进程在维护中途被杀，下次启动时补做收尾（已实测）。
+- `daemon(false)`：本 App 进程退出时 shell 进程随之销毁。
+
+**授权弹窗监视**：Shizuku 授权弹窗（`RequestPermissionActivity`）出现时，除非正在维护、或本 App
+自己刚在 15 秒内发起授权，否则不论守护方式、冷却、是否通话都立即「返回」挡掉，
+记为「索要高级权限」，元凶是弹窗前的前台应用（即使被标记为正常也照记）。
+
+### 1.7 分享报告
+
+家人页右上角 → 报告卡片（近 7 天发现/拦截/标记、骚扰最多的 5 个应用、守护状态）→
+用 Compose `GraphicsLayer` 直接取图，存到 cache/share，经 FileProvider 交给系统分享面板。
 
 ---
 
@@ -177,12 +200,14 @@ class Detector(rules, settings, clock) {
 
 // 高权限执行器：业务只依赖接口，底层可换 Shizuku / 内置 ADB
 interface PrivilegedExecutor {
-  val status: StateFlow<PrivilegeStatus>   // Unavailable / NeedsPermission / Ready
+  val status: StateFlow<PrivilegeStatus>   // NOT_INSTALLED / NOT_RUNNING / NEEDS_PERMISSION / READY
+  fun requestPermission(); fun isRequestingPermission(): Boolean
   suspend fun exec(vararg cmd: String): ShellResult
+  fun release()
 }
 
-// 处置动作：同一个动作有两种执行路径
-sealed interface RemedyAction { Uninstall, RevokeOverlay, DisableNotifications, Freeze, Trust }
+// 维护会话：开始/结束/超时、按应用给出可用处置并执行
+class MaintenanceSession { val endsAt: StateFlow<Long?>; fun actionsFor(pkg); suspend fun perform(pkg, AppAction) }
 ```
 
 ### 2.3 数据模型
@@ -230,8 +255,10 @@ settings: setupDone, pinHash+salt, guardMode, lastHealthOk
 |---|---|
 | P0 骨架 ✅ | 工程、分层、设置向导与权限清单、无障碍前台追踪 + 判定 + 记录、长辈首页、家人密码 |
 | P1 治理 ✅ | 元凶榜与行为说明、基础模式处置；返回无效时回桌面、通话中不处理；长辈提示浮层；手机体检（风险应用 + 系统检查）；守护停止通知 + 15 分钟巡检 |
-| P2 增强 | Shizuku 维护模式、授权弹窗监视、分享报告图片 |
-| P3 可选 | 本地 VPN 广告域名屏蔽、内置 ADB（替代 Shizuku）、子女端 |
+| P2 增强 ✅ | Shizuku 维护模式（6 种直接处置、用完即关、进程被杀后补收尾）、授权弹窗监视、分享报告图片、体检增加无线调试检查 |
+| P3 | 设置向导加首次体检 ✅；内置 ADB（替代 Shizuku） |
+
+不做：本地 VPN 广告域名屏蔽（需要联网权限，与「不联网」承诺冲突）、子女端（需要服务器和账号体系）。
 
 ## 4. 测试设备注意
 

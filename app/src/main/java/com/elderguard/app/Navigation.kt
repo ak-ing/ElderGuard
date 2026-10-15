@@ -11,7 +11,9 @@ import com.elderguard.app.theme.sharedAxisBackward
 import com.elderguard.app.theme.sharedAxisForward
 import com.elderguard.app.ui.elder.ElderHomeScreen
 import com.elderguard.app.ui.family.FamilyHomeScreen
+import com.elderguard.app.ui.family.MaintenanceScreen
 import com.elderguard.app.ui.family.PinGateScreen
+import com.elderguard.app.ui.family.ReportScreen
 import com.elderguard.app.ui.family.ScanScreen
 import com.elderguard.app.ui.setup.SetupScreen
 import kotlinx.serialization.Serializable
@@ -30,6 +32,12 @@ import kotlinx.serialization.Serializable
 
 /** 手机体检：风险应用 + 系统检查 */
 @Serializable data object Scan : NavKey
+
+/** 维护模式：借助 Shizuku 直接处置 */
+@Serializable data object Maintenance : NavKey
+
+/** 分享报告图片 */
+@Serializable data object Report : NavKey
 
 @Composable
 fun AppNavigation(setupDone: Boolean) {
@@ -65,8 +73,17 @@ fun AppNavigation(setupDone: Boolean) {
             onCancel = { backStack.removeLastOrNull() },
           )
         }
-        entry<FamilyHome> { FamilyHomeScreen(onBack = { backStack.removeLastOrNull() }, onOpenScan = { backStack.add(Scan) }) }
+        entry<FamilyHome> {
+          FamilyHomeScreen(
+            onBack = { backStack.removeLastOrNull() },
+            onOpenScan = { backStack.add(Scan) },
+            onOpenMaintenance = { backStack.add(Maintenance) },
+            onOpenReport = { backStack.add(Report) },
+          )
+        }
         entry<Scan> { ScanScreen(onBack = { backStack.removeLastOrNull() }) }
+        entry<Maintenance> { MaintenanceScreen(onBack = { backStack.removeLastOrNull() }) }
+        entry<Report> { ReportScreen(onBack = { backStack.removeLastOrNull() }) }
       },
   )
 }

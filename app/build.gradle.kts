@@ -30,8 +30,7 @@ android {
   }
   buildFeatures {
     compose = true
-    // Shizuku UserService 通过 AIDL 与 shell 进程通信
-    aidl = true
+    // Shizuku UserService 用手写 Binder 通信（见 ShellService），不需要 AIDL
     buildConfig = true
     shaders = false
   }

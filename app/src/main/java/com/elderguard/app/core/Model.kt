@@ -7,6 +7,7 @@ enum class EventType(val label: String, val description: String) {
   QUICK_APP_LAUNCH("拉起快应用", "正在用它时，突然被拉起了快应用"),
   STORE_REDIRECT("跳转商店", "正在用它时，突然被跳到了应用商店"),
   SUSPICIOUS_NOTIFICATION("可疑通知", "发出了假病毒、假中奖之类的通知"),
+  PRIVILEGE_REQUEST("索要高级权限", "想通过 Shizuku 获得高级权限，拿到后可以静默安装、卸载应用"),
 }
 
 /** 家人对某个 App 的结论 */

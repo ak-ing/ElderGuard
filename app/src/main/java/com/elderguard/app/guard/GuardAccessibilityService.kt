@@ -73,6 +73,7 @@ class GuardAccessibilityService : AccessibilityService() {
     )
     scope.launch { c.guardRepository.verdicts.collect { detector.verdicts = it } }
     scope.launch { c.settings.guardMode.collect { responder.mode = it } }
+    detector.privilegeRequestsAllowed = { c.maintenance.active || c.privileged.isRequestingPermission() }
     GuardNotifier.cancelStopped(this)
     _running.value = true
     Log.i(TAG, "守护已启动")
