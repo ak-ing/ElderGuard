@@ -33,7 +33,8 @@ data class ShellResult(val exitCode: Int, val stdout: String, val stderr: String
 
 /**
  * 高权限执行器：维护模式下用来直接执行处置（收回悬浮窗、冻结、卸载…）。
- * 业务只依赖此接口，底层先用 Shizuku，以后可换成内置 ADB 实现。
+ * 业务只依赖此接口，底层用 Shizuku。
+ * 不内置 ADB：连本机 adb 需要联网权限，而本 App 承诺不联网；Shizuku 走 Binder，本 App 不需要联网权限。
  */
 interface PrivilegedExecutor {
   val status: StateFlow<PrivilegeStatus>

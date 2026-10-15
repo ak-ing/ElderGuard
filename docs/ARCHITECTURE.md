@@ -198,7 +198,7 @@ class Detector(rules, settings, clock) {
   fun onScreenUnlocked()
 }
 
-// 高权限执行器：业务只依赖接口，底层可换 Shizuku / 内置 ADB
+// 高权限执行器：业务只依赖接口，底层用 Shizuku（不用内置 ADB，避免联网权限）
 interface PrivilegedExecutor {
   val status: StateFlow<PrivilegeStatus>   // NOT_INSTALLED / NOT_RUNNING / NEEDS_PERMISSION / READY
   fun requestPermission(); fun isRequestingPermission(): Boolean
@@ -256,9 +256,12 @@ settings: setupDone, pinHash+salt, guardMode, lastHealthOk
 | P0 骨架 ✅ | 工程、分层、设置向导与权限清单、无障碍前台追踪 + 判定 + 记录、长辈首页、家人密码 |
 | P1 治理 ✅ | 元凶榜与行为说明、基础模式处置；返回无效时回桌面、通话中不处理；长辈提示浮层；手机体检（风险应用 + 系统检查）；守护停止通知 + 15 分钟巡检 |
 | P2 增强 ✅ | Shizuku 维护模式（6 种直接处置、用完即关、进程被杀后补收尾）、授权弹窗监视、分享报告图片、体检增加无线调试检查 |
-| P3 | 设置向导加首次体检 ✅；内置 ADB（替代 Shizuku） |
+| P3 ✅ | 设置向导加首次体检 |
 
-不做：本地 VPN 广告域名屏蔽（需要联网权限，与「不联网」承诺冲突）、子女端（需要服务器和账号体系）。
+不做：
+- 本地 VPN 广告域名屏蔽：需要联网权限，与「不联网」承诺冲突
+- 内置 ADB（替代 Shizuku）：连本机 adb 也要联网权限，同样与「不联网」冲突；Shizuku 通过 Binder 通信，本 App 无需联网权限
+- 子女端：需要服务器和账号体系
 
 ## 4. 测试设备注意
 
