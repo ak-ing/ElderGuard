@@ -16,6 +16,7 @@ import com.elderguard.app.data.GuardEvent
 import com.elderguard.app.guard.EventTrace
 import com.elderguard.app.guard.GuardAccessibilityService
 import com.elderguard.app.guard.GuardNotificationListener
+import com.elderguard.app.system.CrashLog
 import com.elderguard.app.system.PermissionKind
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -146,6 +147,13 @@ class SelfTester(private val context: Context, private val c: AppContainer) {
         appendLine("系统有记录、守护没记下的：${missing.size} 个")
         missing.forEach { appendLine("  ${time.format(Date(it.time))} ${it.pkg}") }
         appendLine()
+        // 厂商真机上闪退时用来看是崩溃，还是被系统结束（如权限变化）
+        appendLine("【最近的进程退出】")
+        CrashLog.exitReasons(context).ifEmpty { listOf("无") }.forEach(::appendLine)
+        appendLine()
+        appendLine("【最近一次崩溃】")
+        appendLine(CrashLog.lastCrash(context) ?: "无")
+        appendLine()
         appendLine("【日志】")
         append(readLog())
       }
@@ -198,7 +206,8 @@ class SelfTester(private val context: Context, private val c: AppContainer) {
       .getOrElse { "读取失败：${it.message}\n" }
 
   private fun handlers(intent: Intent, rules: Set<String>): List<Handler> =
-    pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+    runCatching { pm.queryIntentActivities(intent, PackageManager.MATCH_ALL) }
+      .getOrDefault(emptyList())
       .map { it.activityInfo.packageName }
       .distinct()
       .map { Handler(it, c.appInfo.label(it), it in rules) }

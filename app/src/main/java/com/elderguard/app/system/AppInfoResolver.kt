@@ -132,20 +132,25 @@ class AppInfoResolver(private val context: Context) {
    */
   fun homePackages(): Set<String> {
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-    val default = pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
-    return pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+    // 厂商系统可能因为没授权「读取应用列表」而拒绝查询：查不到就少放过几个，不能让守护崩掉
+    val default = runCatching { pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName }.getOrNull()
+    return runCatching { pm.queryIntentActivities(intent, PackageManager.MATCH_ALL) }
+      .getOrDefault(emptyList())
       .filter { it.activityInfo.packageName == default || it.priority >= 0 && it.activityInfo.applicationInfo.isSystem() }
       .map { it.activityInfo.packageName }
-      .toSet()
+      .toSet() + listOfNotNull(default)
   }
 
   private fun ApplicationInfo.isSystem() = flags and ApplicationInfo.FLAG_SYSTEM != 0
 
   fun systemPackages(): Set<String> {
     val homes = homePackages()
-    val imes = context.getSystemService(InputMethodManager::class.java).enabledInputMethodList.map { it.packageName }
+    val imes =
+      runCatching { context.getSystemService(InputMethodManager::class.java).enabledInputMethodList.map { it.packageName } }
+        .getOrDefault(emptyList())
     val defaultIme =
-      Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+      runCatching { Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD) }
+        .getOrNull()
         ?.let { ComponentName.unflattenFromString(it)?.packageName }
     return (homes + imes + listOfNotNull(defaultIme)).toSet()
   }

@@ -83,7 +83,10 @@ class AppScanner(
       val denied = !AppListPermission.allowed(context)
       val packages =
         if (denied) emptyList()
-        else pm.getInstalledPackages(PackageManager.GET_PERMISSIONS or PackageManager.GET_PROVIDERS).filter { it.isUserApp() }
+        else
+          runCatching { pm.getInstalledPackages(PackageManager.GET_PERMISSIONS or PackageManager.GET_PROVIDERS) }
+            .getOrDefault(emptyList())
+            .filter { it.isUserApp() }
       val apps =
         packages
           // 已冻结的应用不能运行，不再算风险
@@ -133,7 +136,8 @@ class AppScanner(
       listenerPkgs = enabledComponents("enabled_notification_listeners"),
       admins = context.getSystemService(DevicePolicyManager::class.java).activeAdmins.orEmpty().map { it.packageName }.toSet(),
       launchable =
-        pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), PackageManager.MATCH_ALL)
+        runCatching { pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), PackageManager.MATCH_ALL) }
+          .getOrDefault(emptyList())
           .map { it.activityInfo.packageName }
           .toSet(),
       systemPkgs = appInfo.systemPackages(),

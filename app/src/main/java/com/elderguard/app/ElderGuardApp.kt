@@ -12,6 +12,7 @@ import com.elderguard.app.privileged.PrivilegedExecutor
 import com.elderguard.app.privileged.ShizukuExecutor
 import com.elderguard.app.scan.AppScanner
 import com.elderguard.app.system.AppInfoResolver
+import com.elderguard.app.system.CrashLog
 import com.elderguard.app.system.PermissionChecker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,7 @@ class ElderGuardApp : Application() {
 
   override fun onCreate() {
     super.onCreate()
+    CrashLog.install(this)
     container = AppContainer(this)
     HealthCheckWorker.schedule(this)
     container.appScope.launch { container.maintenance.recoverAfterRestart() }
