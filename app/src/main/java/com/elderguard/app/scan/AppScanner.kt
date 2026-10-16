@@ -134,9 +134,9 @@ class AppScanner(
     val perms = info.requestedPermissions.orEmpty().toSet()
     // 厂商预装（含可卸载的预装，如 ColorOS 的平板管家、天气、无线耳机）本来就常没有图标、名字像工具，
     // 不按这两条算风险；骚扰记录、无障碍、设备管理器照常算
-    // 冒用厂商前缀、却是从安装包装进来的不算
-    val vendorApp =
-      info.isPreinstalled() || VENDOR_PREFIXES.any { pkg.startsWith(it) } && !installer(pkg).orEmpty().endsWith("packageinstaller")
+    // 厂商前缀的应用只有没有安装来源（出厂预置）或由厂商自己的应用（如自带商店）装上时才算；
+    // 冒用厂商前缀、从安装包或第三方应用装进来的不算
+    val vendorApp = info.isPreinstalled() || VENDOR_PREFIXES.any { pkg.startsWith(it) } && vendorInstalled(installer(pkg))
     return buildList {
       if ((ctx.harass[pkg] ?: 0) > 0) add(RiskSignal.HARASSMENT)
       if (pkg in ctx.a11yPkgs) add(RiskSignal.ACCESSIBILITY)
@@ -202,6 +202,9 @@ class AppScanner(
         else @Suppress("DEPRECATION") pm.getInstallerPackageName(pkg)
       }
       .getOrNull()
+
+  private fun vendorInstalled(installer: String?): Boolean =
+    installer == null || VENDOR_PREFIXES.any { installer.startsWith(it) } && !installer.endsWith("packageinstaller")
 
   private fun PackageInfo.isPreinstalled(): Boolean = (applicationInfo?.flags ?: 0) and ApplicationInfo.FLAG_SYSTEM != 0
 

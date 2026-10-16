@@ -35,7 +35,9 @@ class GuardAccessibilityService : AccessibilityService() {
   private lateinit var responder: Responder
   private lateinit var hint: ElderHint
   /** 窗口 id → 所属 App；取一次窗口内容要跨进程，只对新窗口取 */
-  private val windowPackages = HashMap<Int, String?>()
+  private val windowPackages = HashMap<Int, String>()
+  /** 还没认出所属 App 的窗口 → 已尝试次数；刚弹出、还没布局好的窗口过一会儿就能认出来 */
+  private val unresolvedTries = HashMap<Int, Int>()
 
   private val systemReceiver =
     object : BroadcastReceiver() {
@@ -124,9 +126,10 @@ class GuardAccessibilityService : AccessibilityService() {
     val list = runCatching { windows }.getOrNull() ?: return
     val ids = list.map { it.id }.toSet()
     windowPackages.keys.retainAll(ids)
+    unresolvedTries.keys.retainAll(ids)
     val snapshots =
       list.map { w ->
-        val pkg = windowPackages.getOrPut(w.id) { runCatching { w.root?.packageName?.toString() }.getOrNull() }
+        val pkg = windowPackages[w.id] ?: resolvePackage(w)
         WindowSnapshot(w.id, pkg, overlay = w.type == AccessibilityWindowInfo.TYPE_SYSTEM, active = w.isActive)
       }
     overlays
@@ -142,13 +145,37 @@ class GuardAccessibilityService : AccessibilityService() {
       }
   }
 
+  /** 取窗口所属 App；一直读不到（如安全窗口）的试几次就不再跨进程去取 */
+  private fun resolvePackage(w: AccessibilityWindowInfo): String? {
+    val tries = unresolvedTries[w.id] ?: 0
+    if (tries >= MAX_RESOLVE_TRIES) return null
+    val pkg = runCatching { w.root?.packageName?.toString() }.getOrNull()
+    if (pkg != null) {
+      windowPackages[w.id] = pkg
+      unresolvedTries.remove(w.id)
+    } else {
+      unresolvedTries[w.id] = tries + 1
+    }
+    return pkg
+  }
+
+  /**
+   * 当前真正在前台的 App：取最上层的应用窗口。
+   * 不能直接用活动窗口：活动的可能是别的 App 的悬浮窗，把它当前台会让判定器漏掉它之后真正打开的界面
+   */
+  private fun foregroundPackage(): String? {
+    val list = runCatching { windows }.getOrNull() ?: return null
+    val app = list.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION } ?: return null
+    return windowPackages[app.id] ?: runCatching { app.root?.packageName?.toString() }.getOrNull()
+  }
+
   /** 先「返回」；部分广告页会拦截返回键，稍后它若仍在前台就回到桌面 */
   private fun goBack(detection: Detection): Boolean {
     if (!performGlobalAction(GLOBAL_ACTION_BACK)) return false
     main.postDelayed(
       {
-        // 回到已有界面时不一定有窗口切换事件，以当前活动窗口为准；读不到时才用判定器记录的前台
-        val foreground = runCatching { rootInActiveWindow?.packageName?.toString() }.getOrNull() ?: detector.currentPackage
+        // 回到已有界面时不一定有窗口切换事件，以最上层的应用窗口为准；读不到时才用判定器记录的前台
+        val foreground = foregroundPackage() ?: detector.currentPackage
         if (foreground != detection.targetPkg) {
           // 已经退回上一个界面：同步给判定器（通知栏等系统窗口不算前台 App）
           foreground?.takeUnless { it == SYSTEM_UI }?.let(detector::syncForeground)
@@ -196,6 +223,7 @@ class GuardAccessibilityService : AccessibilityService() {
   companion object {
     private const val TAG = "ElderGuard"
     private const val BACK_VERIFY_MS = 800L
+    private const val MAX_RESOLVE_TRIES = 5
     private const val SYSTEM_UI = "com.android.systemui"
     private val _running = MutableStateFlow(false)
     /** 本进程内服务是否处于连接状态（设置里开着但被系统杀掉时为 false） */

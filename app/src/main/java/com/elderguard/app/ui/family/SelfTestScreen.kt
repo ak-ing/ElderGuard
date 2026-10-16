@@ -1,6 +1,7 @@
 package com.elderguard.app.ui.family
 
 import android.content.Context
+import android.os.SystemClock
 import android.content.Intent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -140,10 +141,14 @@ class SelfTestViewModel(private val tester: SelfTester) : ViewModel() {
   private suspend fun runLaunch(id: CheckId, guardOk: Boolean, target: LaunchTarget?, missing: () -> String) {
     if (!guardOk) return set(id, CheckStatus.SKIPPED, "守护没有运行，无法测试")
     if (target == null) return set(id, CheckStatus.SKIPPED, missing())
-    for (s in COUNTDOWN_S downTo 1) {
+    // 刚挡掉过它时守护在冷却期内不会再动手，连着再测会误报失败：倒计时拉长到冷却结束之后
+    val cooling = lastLaunchAt[target.pkg]?.let { tester.cooldownMs + COOLDOWN_MARGIN_MS - (SystemClock.elapsedRealtime() - it) } ?: 0L
+    val countdown = maxOf(COUNTDOWN_S, ((cooling + 999) / 1000).toInt())
+    for (s in countdown downTo 1) {
       set(id, CheckStatus.RUNNING, "$s 秒后打开「${target.label}」，请不要触碰屏幕")
       delay(1_000)
     }
+    lastLaunchAt[target.pkg] = SystemClock.elapsedRealtime()
     val since = System.currentTimeMillis()
     runCatching { tester.launch(target) }
       .onFailure {
@@ -168,6 +173,10 @@ class SelfTestViewModel(private val tester: SelfTester) : ViewModel() {
     _state.update { s -> s.copy(results = s.results.map { if (it.id == id) CheckResult(id, status, detail) else it }) }
 
   private companion object {
+    /** 上次自检打开各应用的时间；放在进程级，退出自检页再进来也要算上 */
+    val lastLaunchAt = HashMap<String, Long>()
+    /** 冷却从挡掉时算起，比打开晚一点 */
+    const val COOLDOWN_MARGIN_MS = 2_000L
     const val COUNTDOWN_S = 4
     const val WAIT_MS = 8_000L
     const val SETTLE_MS = 800L

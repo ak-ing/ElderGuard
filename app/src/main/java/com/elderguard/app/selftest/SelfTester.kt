@@ -50,6 +50,10 @@ class SelfTester(private val context: Context, private val c: AppContainer) {
 
   suspend fun blockQuickApps(): Boolean = c.settings.blockQuickApps.first()
 
+  /** 守护挡掉同一个应用后，这么久内不再动手 */
+  val cooldownMs: Long
+    get() = c.rules.autoActionCooldownMs
+
   /** 优先用名单里的快应用引擎打开快应用链接；没有链接处理者时直接打开已安装的引擎 */
   fun quickAppTarget(): LaunchTarget? {
     quickAppHandlers().firstOrNull { it.inRules }?.let { return LaunchTarget(it.pkg, it.label, Intent(HAP_INTENT).setPackage(it.pkg)) }

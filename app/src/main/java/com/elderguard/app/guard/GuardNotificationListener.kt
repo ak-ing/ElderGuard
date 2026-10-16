@@ -7,6 +7,7 @@ import android.widget.Toast
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.elderguard.app.container
+import com.elderguard.app.core.Trust
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -59,15 +60,20 @@ class GuardNotificationListener : NotificationListenerService() {
         )
         .joinToString(" ")
     val isCallOrAlarm = n.category == Notification.CATEGORY_CALL || n.category == Notification.CATEGORY_ALARM
-    // 聊天消息是人发的，亲友一句「恭喜您」不能把微信算成可疑应用；只看全屏意图
-    val isChat =
+    val pkg = sbn.packageName
+    // 聊天消息是人发的，亲友一句「恭喜您」不能把微信算成可疑应用；只看全屏意图。
+    // 「消息」类别、聊天样式谁都能设，只认名单里的聊天应用和系统自带的（如短信）；家人标记的流氓一律不豁免
+    val messaging =
       n.category == Notification.CATEGORY_MESSAGE ||
-        extras.getString(Notification.EXTRA_TEMPLATE) == Notification.MessagingStyle::class.java.name ||
-        sbn.packageName in container.rules.chatPackages
-    val detection =
-      detector.onNotification(sbn.packageName, if (isChat) "" else text, n.fullScreenIntent != null, isCallOrAlarm) ?: return
-    // 同一条通知刷新（进度、时间变化）会反复发来，内容没变就不重复记录
-    if (reported.put(sbn.key, detection.detail) == detection.detail) return
+        extras.getString(Notification.EXTRA_TEMPLATE) == Notification.MessagingStyle::class.java.name
+    val isChat =
+      detector.verdicts[pkg] != Trust.FLAGGED &&
+        (pkg in container.rules.chatPackages || messaging && container.appInfo.isPreinstalled(pkg))
+    val detection = detector.onNotification(pkg, if (isChat) "" else text, n.fullScreenIntent != null, isCallOrAlarm) ?: return
+    // 同一条通知刷新（进度、时间变化）会反复发来，内容没变就不重复记录；
+    // 之后被家人标记为流氓的，再发来时要重新处理（撤掉）
+    val seen = "${detection.autoBlockable}|${detection.detail}"
+    if (reported.put(sbn.key, seen) == seen) return
     responder.handle(detection) {
       cancelNotification(sbn.key)
       true

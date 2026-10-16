@@ -82,6 +82,55 @@ class OverlayWatcherTest {
   }
 
   @Test
+  fun emptyListAtStart_isNotTakenAsBaseline() {
+    // 服务刚连上时窗口列表可能还是空的
+    val w = OverlayWatcher { now }
+    assertTrue(w.onWindows(emptyList(), null).isEmpty())
+    assertTrue(w.onWindows(listOf(launcher, overlay(2, "com.ball")), "launcher").isEmpty())
+    now += 60_000
+    assertTrue(w.onWindows(listOf(launcher, overlay(2, "com.ball")), "launcher").isEmpty())
+  }
+
+  @Test
+  fun overlayHiddenThenShownAgain_isNotNew() {
+    // 系统设置在前台时会藏起别的应用的悬浮窗，回到桌面时同一个窗口重新出现
+    assertEquals(listOf("com.ad"), watcher.onWindows(listOf(launcher, overlay(2, "com.ad")), "launcher"))
+    now += 11 * 60_000
+    watcher.onWindows(listOf(WindowSnapshot(5, "settings", overlay = false, active = true)), "settings")
+    now += 5_000
+    assertTrue(watcher.onWindows(listOf(launcher, overlay(2, "com.ad")), "launcher").isEmpty())
+  }
+
+  @Test
+  fun overlayShowingUpRightAfterStart_isTreatedAsPresentAtStart() {
+    // 启动时的窗口列表里还没有它，过一会儿才出现
+    val w = OverlayWatcher { now }
+    w.onWindows(listOf(launcher), "launcher")
+    now += 500
+    assertTrue(w.onWindows(listOf(launcher, overlay(2, "com.ball")), "launcher").isEmpty())
+    now += 60_000
+    assertTrue(w.onWindows(listOf(launcher, overlay(2, "com.ball")), "launcher").isEmpty())
+  }
+
+  @Test
+  fun overlayPresentAtStartButUnrecognized_isNotReportedLater() {
+    val w = OverlayWatcher { now }
+    w.onWindows(listOf(launcher, WindowSnapshot(2, null, overlay = true, active = false)), "launcher")
+    now += 300
+    w.onWindows(listOf(launcher, WindowSnapshot(2, null, overlay = true, active = false)), "launcher")
+    now += 60_000
+    assertTrue(w.onWindows(listOf(launcher, overlay(2, "com.ad")), "launcher").isEmpty())
+  }
+
+  @Test
+  fun overlayRecognizedLater_isStillReported() {
+    // 刚弹出时还读不到所属 App，下一次窗口变化才认出来
+    assertTrue(watcher.onWindows(listOf(launcher, WindowSnapshot(2, null, overlay = true, active = false)), "launcher").isEmpty())
+    now += 300
+    assertEquals(listOf("com.ad"), watcher.onWindows(listOf(launcher, overlay(2, "com.ad")), "launcher"))
+  }
+
+  @Test
   fun nonOverlayWindowsAndUnknownPackages_areIgnored() {
     val dialog = WindowSnapshot(2, "com.app", overlay = false, active = false)
     val unknown = WindowSnapshot(3, null, overlay = true, active = false)
