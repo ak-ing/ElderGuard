@@ -65,7 +65,9 @@ class AppInfoResolver(private val context: Context) {
 
   /** [since] 之后首次安装的用户应用（不含系统应用和本 App），按系统记的首次安装时间 */
   fun installedSince(since: Long): List<InstalledApp> =
-    runCatching { pm.getInstalledPackages(0) }
+    // 没有「读取应用列表」权限时读了也只有自己，还会在后台弹系统授权框
+    if (!AppListPermission.allowed(context)) emptyList()
+    else runCatching { pm.getInstalledPackages(0) }
       .getOrDefault(emptyList())
       .filter { it.packageName != context.packageName && it.applicationInfo?.isSystem() == false && it.firstInstallTime >= since }
       .map { installRecord(it.packageName, it.firstInstallTime) }

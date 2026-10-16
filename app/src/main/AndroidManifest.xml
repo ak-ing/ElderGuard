@@ -6,6 +6,8 @@
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- 国内厂商系统（ColorOS、MIUI 等）另加的「读取应用列表」权限，要声明并在设置向导里申请；原生系统没有，声明无影响 -->
+    <uses-permission android:name="com.android.permission.GET_INSTALLED_APPS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 密码键盘震动；普通权限，安装即获得 -->
     <uses-permission android:name="android.permission.VIBRATE" />

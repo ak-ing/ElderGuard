@@ -82,6 +82,9 @@ import com.elderguard.app.scan.RiskyApp
 import com.elderguard.app.scan.ScanResult
 import com.elderguard.app.scan.SystemCheck
 import com.elderguard.app.system.SettingsNavigator
+import com.elderguard.app.system.PermissionKind
+import com.elderguard.app.ui.common.AppListWarning
+import com.elderguard.app.ui.common.rememberPermissionOpener
 import com.elderguard.app.theme.AppTheme
 import com.elderguard.app.theme.Motion
 import com.elderguard.app.ui.common.AlignedLargeTopAppBar
@@ -159,6 +162,8 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
   var selected by remember { mutableStateOf<RiskyApp?>(null) }
   val snackbar = remember { SnackbarHostState() }
   ShowMessages(vm.actions.messages, snackbar)
+  // 开了「读取应用列表」后重新体检
+  val openPermission = rememberPermissionOpener(onResult = vm::scan)
 
   BoxWithConstraints(modifier.fillMaxSize()) {
     Scaffold(
@@ -178,7 +183,7 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
         modifier = Modifier.padding(top = padding.calculateTopPadding()),
       ) { r ->
         if (r == null) Scanning()
-        else Results(r, bottomPadding = padding.calculateBottomPadding(), onSelect = { selected = it }, onFreeze = vm::freeze)
+        else Results(r, bottomPadding = padding.calculateBottomPadding(), onSelect = { selected = it }, onFreeze = vm::freeze, onOpenAppList = { openPermission(PermissionKind.APP_LIST) })
       }
     }
   }
@@ -248,6 +253,7 @@ private fun Results(
   bottomPadding: androidx.compose.ui.unit.Dp,
   onSelect: (RiskyApp) -> Unit,
   onFreeze: (List<String>) -> Unit,
+  onOpenAppList: () -> Unit,
 ) {
   val maintaining = LocalContext.current.container.maintenance.endsAt.collectAsStateWithLifecycle().value != null
   LazyColumn(
@@ -255,6 +261,11 @@ private fun Results(
     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = bottomPadding + 24.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
+    if (r.appListDenied) {
+      item(key = "appListWarning", contentType = "warning") {
+        AppListWarning(onOpenAppList, ItemModifier.padding(bottom = 12.dp).animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
+      }
+    }
     item(key = "summary") { ScanSummary(r,ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
 
     if (r.apps.isNotEmpty()) {

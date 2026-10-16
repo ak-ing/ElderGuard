@@ -15,8 +15,8 @@ android {
     applicationId = "com.elderguard.app"
     minSdk = 26
     targetSdk = 37
-    versionCode = 2
-    versionName = "1.1.0"
+    versionCode = 3
+    versionName = "1.1.1"
   }
 
   // 发布签名放在仓库外：根目录 keystore.properties（已忽略）指向 jks；没有时 release 包不签名

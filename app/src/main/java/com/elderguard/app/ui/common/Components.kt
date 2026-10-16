@@ -74,7 +74,9 @@ import com.elderguard.app.container
 import com.elderguard.app.core.EventType
 import com.elderguard.app.system.PermissionKind
 import com.elderguard.app.system.PermissionState
+import com.elderguard.app.system.AppListPermission
 import com.elderguard.app.system.SettingsNavigator
+import androidx.compose.material.icons.rounded.Apps
 import com.elderguard.app.theme.AppTheme
 import com.elderguard.app.theme.popSwap
 
@@ -163,6 +165,7 @@ val PermissionKind.icon: ImageVector
   get() =
     when (this) {
       PermissionKind.ACCESSIBILITY -> Icons.Rounded.Accessibility
+      PermissionKind.APP_LIST -> Icons.Rounded.Apps
       PermissionKind.NOTIFICATION_LISTENER -> Icons.Rounded.NotificationsActive
       PermissionKind.POST_NOTIFICATIONS -> Icons.Rounded.NotificationAdd
       PermissionKind.BATTERY -> Icons.Rounded.BatteryChargingFull
@@ -179,7 +182,7 @@ val EventType.icon: ImageVector
       EventType.PRIVILEGE_REQUEST -> Icons.Rounded.Key
     }
 
-/** 打开某项权限：发送通知走运行时申请，其余跳系统设置页 */
+/** 打开某项权限：发送通知、读取应用列表走运行时申请（被拒过就跳设置页），其余跳系统设置页 */
 @Composable
 fun rememberPermissionOpener(onResult: () -> Unit): (PermissionKind) -> Unit {
   val context = LocalContext.current
@@ -188,12 +191,34 @@ fun rememberPermissionOpener(onResult: () -> Unit): (PermissionKind) -> Unit {
       if (!granted) SettingsNavigator.open(context, PermissionKind.POST_NOTIFICATIONS)
       onResult()
     }
-  return { kind ->
-    if (kind == PermissionKind.POST_NOTIFICATIONS && Build.VERSION.SDK_INT >= 33) {
-      notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-    } else {
-      SettingsNavigator.open(context, kind)
+  val appListLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      // 拒绝过一次后系统不再弹框，直接带家人去本应用的权限页
+      if (!granted) SettingsNavigator.open(context, PermissionKind.APP_LIST)
+      onResult()
     }
+  return { kind ->
+    when {
+      kind == PermissionKind.POST_NOTIFICATIONS && Build.VERSION.SDK_INT >= 33 ->
+        notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+      kind == PermissionKind.APP_LIST -> appListLauncher.launch(AppListPermission.NAME)
+      else -> SettingsNavigator.open(context, kind)
+    }
+  }
+}
+
+/** 没有「读取应用列表」权限时的提示：体检、首次体检里放在结果上方 */
+@Composable
+fun AppListWarning(onOpen: () -> Unit, modifier: Modifier = Modifier) {
+  val ext = AppTheme.extendedColors
+  Surface(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = ext.warningContainer, contentColor = ext.onWarningContainer) {
+    ListItem(
+      colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+      leadingContent = { Icon(Icons.Rounded.Apps, contentDescription = null) },
+      headlineContent = { Text("没有读取应用列表的权限") },
+      supportingContent = { Text("查不到手机里装的其他应用，体检和新装的应用都不完整") },
+      trailingContent = { Button(onClick = onOpen) { Text("开启") } },
+    )
   }
 }
 

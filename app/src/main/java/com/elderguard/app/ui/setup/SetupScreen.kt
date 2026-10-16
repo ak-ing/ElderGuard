@@ -79,6 +79,7 @@ import com.elderguard.app.scan.ScanResult
 import com.elderguard.app.system.PermissionKind
 import com.elderguard.app.system.PermissionState
 import com.elderguard.app.theme.Motion
+import com.elderguard.app.ui.common.AppListWarning
 import com.elderguard.app.ui.common.CenteredContent
 import com.elderguard.app.ui.common.GroupCard
 import com.elderguard.app.ui.common.PIN_LENGTH
@@ -173,6 +174,14 @@ class SetupViewModel(private val c: AppContainer) : ViewModel() {
     }
   }
 
+  /** 体检时没有「读取应用列表」权限、之后家人开了：重新体检 */
+  fun rescanIfAppListGranted() {
+    val r = _state.value.scan ?: return
+    if (!r.appListDenied || c.permissions.isGranted(PermissionKind.APP_LIST) != true) return
+    _state.update { it.copy(scan = null) }
+    startCheckup()
+  }
+
   /** 从系统卸载界面返回后，去掉已经卸载的应用 */
   fun dropUninstalled() =
     _state.update { s -> s.copy(scan = s.scan?.let { r -> r.copy(apps = r.apps.filter { c.appInfo.isInstalled(it.pkg) }) }) }
@@ -211,6 +220,7 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
   LifecycleResumeEffect(Unit) {
     vm.refreshPermissions()
     vm.dropUninstalled()
+    vm.rescanIfAppListGranted()
     onPauseOrDispose {}
   }
   var selected by remember { mutableStateOf<RiskyApp?>(null) }
@@ -255,7 +265,7 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
           SetupStep.PERMISSIONS ->
             PermissionStep(state.permissions, openPermission)
           SetupStep.MODE -> ModeStep(state.mode, vm::selectMode)
-          SetupStep.CHECKUP -> CheckupStep(state.scan, onSelect = { selected = it })
+          SetupStep.CHECKUP -> CheckupStep(state.scan, onSelect = { selected = it }, onOpenAppList = { openPermission(PermissionKind.APP_LIST) })
         }
       }
     }
@@ -298,7 +308,7 @@ private fun BottomAction(state: SetupState, onNext: () -> Unit) {
   val label =
     when (state.step) {
       SetupStep.INTRO -> "开始设置"
-      SetupStep.PERMISSIONS -> if (state.requiredGranted) "继续" else "请先开启无障碍服务"
+      SetupStep.PERMISSIONS -> if (state.requiredGranted) "继续" else "请先开启「需要开启」的权限"
       SetupStep.MODE -> "继续"
       SetupStep.CHECKUP -> if (state.scan == null) "跳过，完成设置" else "完成"
       else -> null
@@ -386,7 +396,7 @@ private fun PinStep(state: SetupState, onInput: (String) -> Unit) {
 
 @Composable
 private fun PermissionStep(permissions: List<PermissionState>, onOpen: (PermissionKind) -> Unit) {
-  StepHeader(Icons.Rounded.Key, "开启守护权限", "点「开启」会跳到系统设置，打开后返回这里，状态会自动更新。只有无障碍服务是必须的。")
+  StepHeader(Icons.Rounded.Key, "开启守护权限", "点「开启」会跳到系统设置或弹出系统授权框，打开后返回这里，状态会自动更新。「需要开启」的几项是必须的。")
   GroupCard { PermissionTiers(permissions, onOpen) }
 }
 
@@ -397,7 +407,7 @@ private fun ModeStep(selected: GuardMode, onSelect: (GuardMode) -> Unit) {
 }
 
 @Composable
-private fun CheckupStep(scan: ScanResult?, onSelect: (RiskyApp) -> Unit) {
+private fun CheckupStep(scan: ScanResult?, onSelect: (RiskyApp) -> Unit, onOpenAppList: () -> Unit) {
   StepHeader(Icons.Rounded.HealthAndSafety, "首次体检", "看看手机里已经装了哪些可疑应用，趁现在一并处理。也可以跳过，以后在家人页随时体检。")
   AnimatedContent(
     scan,
@@ -413,6 +423,7 @@ private fun CheckupStep(scan: ScanResult?, onSelect: (RiskyApp) -> Unit) {
       }
     } else {
       Column {
+        if (r.appListDenied) AppListWarning(onOpenAppList, Modifier.padding(bottom = 12.dp))
         ScanSummary(r, Modifier.fillMaxWidth())
         if (r.apps.isNotEmpty()) {
           SectionHeader("风险应用", Modifier.padding(top = 16.dp), "点一下查看原因，可以卸载或标记")

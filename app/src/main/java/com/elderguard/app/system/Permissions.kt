@@ -26,6 +26,8 @@ enum class PermissionTier(val title: String) {
 /** [reason] 写清开了能做什么、不开会少什么 */
 enum class PermissionKind(val title: String, val reason: String, val tier: PermissionTier) {
   ACCESSIBILITY("无障碍服务", "挡掉快应用和流氓应用、发现悬浮窗、记下新装的应用。不开守护就不工作", PermissionTier.REQUIRED),
+  /** 国内厂商系统（ColorOS、MIUI 等）另加的权限；原生系统没有，不显示 */
+  APP_LIST("读取应用列表", "看到手机里装了哪些应用：体检、新装的应用都靠它。不开就查不到流氓应用", PermissionTier.REQUIRED),
   NOTIFICATION_LISTENER("通知使用权", "发现全屏弹出、假病毒、假中奖的通知。不开就少了通知这一块", PermissionTier.RECOMMENDED),
   POST_NOTIFICATIONS("发送通知", "守护被关掉时在这台手机上提醒。不开就没人知道守护停了", PermissionTier.RECOMMENDED),
   BATTERY("不限制耗电", "系统清理后台时不再优先关掉守护", PermissionTier.IF_STOPPED),
@@ -43,12 +45,34 @@ val isColorOs: Boolean
 /** null 表示无法检测（如厂商自启动），界面上显示为「请确认」 */
 data class PermissionState(val kind: PermissionKind, val granted: Boolean?)
 
+/**
+ * 「读取应用列表」：团体标准 T/TAF 108-2022 规定的厂商权限。系统支持时，没授权的应用读已装应用列表
+ * 只能拿到系统应用和自己，而且一读就弹系统授权框——所以没授权前不去读，免得框在后台莫名弹出来
+ */
+object AppListPermission {
+  const val NAME = "com.android.permission.GET_INSTALLED_APPS"
+
+  /** 系统有这个权限：标准里的开关为 1，或者系统定义了这个权限名 */
+  fun supported(context: Context): Boolean =
+    runCatching { Settings.Secure.getInt(context.contentResolver, "oem_installed_apps_runtime_permission_enable") == 1 }
+      .getOrDefault(false) || runCatching { context.packageManager.getPermissionInfo(NAME, 0) }.isSuccess
+
+  /** 能读完整的应用列表：系统没有这个权限，或者已经授权 */
+  fun allowed(context: Context): Boolean =
+    !supported(context) || ContextCompat.checkSelfPermission(context, NAME) == PackageManager.PERMISSION_GRANTED
+}
+
 class PermissionChecker(private val context: Context) {
-  fun snapshot(): List<PermissionState> = PermissionKind.entries.map { PermissionState(it, isGranted(it)) }
+  /** 系统没有的权限（如原生系统上的「读取应用列表」）不列出来 */
+  fun snapshot(): List<PermissionState> =
+    PermissionKind.entries
+      .filter { it != PermissionKind.APP_LIST || AppListPermission.supported(context) }
+      .map { PermissionState(it, isGranted(it)) }
 
   fun isGranted(kind: PermissionKind): Boolean? =
     when (kind) {
       PermissionKind.ACCESSIBILITY -> isAccessibilityEnabled()
+      PermissionKind.APP_LIST -> AppListPermission.allowed(context)
       PermissionKind.NOTIFICATION_LISTENER ->
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
       PermissionKind.POST_NOTIFICATIONS ->
@@ -103,6 +127,8 @@ object SettingsNavigator {
             add(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
           }
         PermissionKind.NOTIFICATION_LISTENER -> listOf(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        // 拒绝过以后系统不再弹授权框，只能去本应用的权限页里打开（落到末尾的应用详情页）
+        PermissionKind.APP_LIST -> emptyList()
         PermissionKind.POST_NOTIFICATIONS ->
           listOf(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
         PermissionKind.BATTERY ->

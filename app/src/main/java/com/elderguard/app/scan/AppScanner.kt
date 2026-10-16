@@ -14,6 +14,7 @@ import com.elderguard.app.core.GuardRules
 import com.elderguard.app.core.Trust
 import com.elderguard.app.data.GuardRepository
 import com.elderguard.app.system.AppInfoResolver
+import com.elderguard.app.system.AppListPermission
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -58,7 +59,14 @@ data class RiskyApp(
 /** 系统层检查；[ok] 为 false 表示建议处理；[freezable] 是维护模式下可以直接冻结的应用 */
 data class SystemCheck(val title: String, val detail: String, val ok: Boolean, val freezable: List<String> = emptyList())
 
-data class ScanResult(val apps: List<RiskyApp>, val checks: List<SystemCheck>, val scannedCount: Int, val time: Long)
+/** [appListDenied]：没有「读取应用列表」权限，只扫到了系统应用，结果不完整 */
+data class ScanResult(
+  val apps: List<RiskyApp>,
+  val checks: List<SystemCheck>,
+  val scannedCount: Int,
+  val time: Long,
+  val appListDenied: Boolean = false,
+)
 
 class AppScanner(
   private val context: Context,
@@ -71,8 +79,11 @@ class AppScanner(
   suspend fun scan(): ScanResult =
     withContext(Dispatchers.Default) {
       val ctx = collectContext()
+      // 没有「读取应用列表」权限时不去读：读了也只有自己，还会弹系统授权框
+      val denied = !AppListPermission.allowed(context)
       val packages =
-        pm.getInstalledPackages(PackageManager.GET_PERMISSIONS or PackageManager.GET_PROVIDERS).filter { it.isUserApp() }
+        if (denied) emptyList()
+        else pm.getInstalledPackages(PackageManager.GET_PERMISSIONS or PackageManager.GET_PROVIDERS).filter { it.isUserApp() }
       val apps =
         packages
           // 已冻结的应用不能运行，不再算风险
@@ -88,7 +99,7 @@ class AppScanner(
           }
           .sortedWith(compareBy<RiskyApp> { it.level }.thenByDescending { it.score })
 
-      ScanResult(apps, systemChecks(), packages.size, System.currentTimeMillis())
+      ScanResult(apps, systemChecks(), packages.size, System.currentTimeMillis(), appListDenied = denied)
     }
 
   /** 指定应用的风险信号（新装应用列表用）；已卸载的应用没有条目 */
