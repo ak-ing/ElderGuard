@@ -96,10 +96,20 @@ class ShizukuExecutor(private val context: Context) : PrivilegedExecutor {
     _status.value =
       when {
         !isShizukuInstalled() -> PrivilegeStatus.NOT_INSTALLED
-        !Shizuku.pingBinder() -> PrivilegeStatus.NOT_RUNNING
-        Shizuku.isPreV11() || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED ->
-          PrivilegeStatus.NEEDS_PERMISSION
-        else -> PrivilegeStatus.READY
+        else ->
+          // Shizuku 刚把 binder 递过来、还没完成本 App 的接入时，查询会抛「Not an attached client」
+          // （OPPO 平板实测：装着并运行 Shizuku，安装后首次打开在 Application.onCreate 里崩溃）。
+          // 查不了就先当作未启动，接入完成后 binder 监听会再刷新一次
+          runCatching {
+              when {
+                !Shizuku.pingBinder() -> PrivilegeStatus.NOT_RUNNING
+                Shizuku.isPreV11() || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED ->
+                  PrivilegeStatus.NEEDS_PERMISSION
+                else -> PrivilegeStatus.READY
+              }
+            }
+            .onFailure { Log.w(TAG, "查询 Shizuku 状态失败", it) }
+            .getOrDefault(PrivilegeStatus.NOT_RUNNING)
       }
   }
 
@@ -108,7 +118,7 @@ class ShizukuExecutor(private val context: Context) : PrivilegedExecutor {
   override fun requestPermission() {
     if (!Shizuku.pingBinder()) return
     requestedAt = SystemClock.elapsedRealtime()
-    Shizuku.requestPermission(REQUEST_CODE)
+    runCatching { Shizuku.requestPermission(REQUEST_CODE) }.onFailure { Log.w(TAG, "申请 Shizuku 授权失败", it) }
   }
 
   override fun isRequestingPermission(): Boolean = SystemClock.elapsedRealtime() - requestedAt <= SELF_REQUEST_WINDOW_MS
@@ -134,7 +144,11 @@ class ShizukuExecutor(private val context: Context) : PrivilegedExecutor {
     bindLock.withLock {
       service?.takeIf { it.pingBinder() }?.let { return it }
       val deferred = CompletableDeferred<IBinder>().also { pendingBind = it }
-      withContext(Dispatchers.Main) { Shizuku.bindUserService(serviceArgs, connection) }
+      val started = withContext(Dispatchers.Main) { runCatching { Shizuku.bindUserService(serviceArgs, connection) }.isSuccess }
+      if (!started) {
+        pendingBind = null
+        return null
+      }
       withTimeoutOrNull(BIND_TIMEOUT_MS) { deferred.await() }.also { pendingBind = null }
     }
 
