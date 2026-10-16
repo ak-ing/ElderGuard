@@ -129,6 +129,16 @@ class SelfTester(private val context: Context, private val c: AppContainer) {
           )
         }
         appendLine()
+        // 对照两边：守护记下的 vs 系统记的近 30 天首次安装，差的就是安装广播没收到的
+        appendLine("【新装的应用】")
+        val since = c.guardRepository.installWindowStart()
+        val recorded = c.guardRepository.allInstalls().filter { it.time >= since }
+        appendLine("守护记下的：${recorded.size} 个")
+        recorded.forEach { appendLine("  ${time.format(Date(it.time))} ${it.pkg} 来源 ${c.appInfo.sourceLabel(it) ?: "未知"}") }
+        val missing = c.appInfo.installedSince(since).filter { app -> recorded.none { it.pkg == app.pkg } }
+        appendLine("系统有记录、守护没记下的：${missing.size} 个")
+        missing.forEach { appendLine("  ${time.format(Date(it.time))} ${it.pkg}") }
+        appendLine()
         appendLine("【日志】")
         append(readLog())
       }

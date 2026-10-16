@@ -54,7 +54,23 @@ class GuardRepository(private val dao: GuardDao) {
   suspend fun recordInstall(app: InstalledApp) = dao.upsertInstall(app)
 
   /** 近 30 天新装的应用 */
-  fun recentInstalls(): Flow<List<InstalledApp>> = dao.installsSince(System.currentTimeMillis() - 30 * DAY_MS)
+  fun recentInstalls(): Flow<List<InstalledApp>> = dao.installsSince(installWindowStart())
+
+  /** 「新装的应用」统计的起点：30 天前 */
+  fun installWindowStart(): Long = System.currentTimeMillis() - 30 * DAY_MS
+
+  /**
+   * 用系统记的首次安装时间补齐记录：安装广播在部分厂商系统上会丢。
+   * 没记过的、或者卸载后重装（首次安装时间更晚）的才写入，已卸载应用的旧记录保留
+   */
+  suspend fun syncInstalls(found: List<InstalledApp>): List<InstalledApp> {
+    val known = dao.allInstalls().associate { it.pkg to it.time }
+    val added = found.filter { app -> known[app.pkg].let { it == null || it < app.time } }
+    if (added.isNotEmpty()) dao.upsertInstalls(added)
+    return added
+  }
+
+  suspend fun allInstalls(): List<InstalledApp> = dao.allInstalls()
 
   /** trust 为 null 表示清除结论，恢复「待观察」 */
   suspend fun setTrust(pkg: String, trust: Trust?) {

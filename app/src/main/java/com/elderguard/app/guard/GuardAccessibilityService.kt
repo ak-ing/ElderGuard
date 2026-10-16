@@ -12,6 +12,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityWindowInfo
 import androidx.core.content.ContextCompat
+import com.elderguard.app.AppContainer
 import com.elderguard.app.container
 import com.elderguard.app.core.Detection
 import kotlinx.coroutines.CoroutineScope
@@ -91,6 +92,8 @@ class GuardAccessibilityService : AccessibilityService() {
     scope.launch { c.guardRepository.verdicts.collect { detector.verdicts = it } }
     scope.launch { c.settings.guardMode.collect { responder.mode = it } }
     scope.launch { c.settings.blockQuickApps.collect { detector.blockQuickApps = it } }
+    // 服务没在运行、或安装广播被厂商系统丢掉时装上的应用，按系统记的首次安装时间补上
+    scope.launch { syncInstalls(c) }
     detector.privilegeRequestsAllowed = { c.maintenance.active || c.privileged.isRequestingPermission() }
     // 以当前窗口为基准，服务启动前就在的悬浮窗不记
     onWindowsChanged()
@@ -192,6 +195,7 @@ class GuardAccessibilityService : AccessibilityService() {
   private fun recordInstall(pkg: String) {
     val c = container
     if (pkg == packageName) return
+    EventTrace.add("新装 $pkg")
     scope.launch {
       val record = c.appInfo.installRecord(pkg)
       c.guardRepository.recordInstall(record)
@@ -228,5 +232,15 @@ class GuardAccessibilityService : AccessibilityService() {
     private val _running = MutableStateFlow(false)
     /** 本进程内服务是否处于连接状态（设置里开着但被系统杀掉时为 false） */
     val running: StateFlow<Boolean> = _running.asStateFlow()
+
+    /**
+     * 按系统记的首次安装时间补齐「新装的应用」（守护没在运行时装的、安装广播被厂商系统丢掉的）。
+     * 补上的写进事件记录，从自检报告能看出是广播收到的还是补记的
+     */
+    suspend fun syncInstalls(c: AppContainer) {
+      c.guardRepository.syncInstalls(c.appInfo.installedSince(c.guardRepository.installWindowStart())).forEach {
+        EventTrace.add("补记新装 ${it.pkg}（按系统记的安装时间）")
+      }
+    }
   }
 }

@@ -42,17 +42,24 @@ class AppInfoResolver(private val context: Context) {
   fun isPreinstalled(pkg: String): Boolean =
     preinstalled.getOrPut(pkg) { runCatching { pm.getApplicationInfo(pkg, 0).isSystem() }.getOrDefault(false) }
 
-  /** 刚装上的 [pkg] 的安装记录 */
-  fun installRecord(pkg: String): InstalledApp {
-    val now = System.currentTimeMillis()
+  /** [pkg] 的安装记录；时间用系统记的首次安装时间，取不到时用 [fallbackTime] */
+  fun installRecord(pkg: String, fallbackTime: Long = System.currentTimeMillis()): InstalledApp {
+    val time = runCatching { pm.getPackageInfo(pkg, 0).firstInstallTime }.getOrNull()?.takeIf { it > 0 } ?: fallbackTime
     if (Build.VERSION.SDK_INT < 30) {
       @Suppress("DEPRECATION") val installer = runCatching { pm.getInstallerPackageName(pkg) }.getOrNull()
-      return InstalledApp(pkg, now, installer, null)
+      return InstalledApp(pkg, time, installer, null)
     }
     val info = runCatching { pm.getInstallSourceInfo(pkg) }.getOrNull()
     val source = if (Build.VERSION.SDK_INT >= 33) info?.packageSource else null
-    return InstalledApp(pkg, now, info?.installingPackageName, source)
+    return InstalledApp(pkg, time, info?.installingPackageName, source)
   }
+
+  /** [since] 之后首次安装的用户应用（不含系统应用和本 App），按系统记的首次安装时间 */
+  fun installedSince(since: Long): List<InstalledApp> =
+    runCatching { pm.getInstalledPackages(0) }
+      .getOrDefault(emptyList())
+      .filter { it.packageName != context.packageName && it.applicationInfo?.isSystem() == false && it.firstInstallTime >= since }
+      .map { installRecord(it.packageName, it.firstInstallTime) }
 
   /** 给家人看的安装来源：安装包文件、下载的安装包，或发起安装的应用（商店、浏览器…）；系统没记录时为 null */
   fun sourceLabel(app: InstalledApp): String? =

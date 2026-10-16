@@ -95,6 +95,10 @@ interface GuardDao {
 
   @Query("SELECT * FROM installed_app WHERE time >= :since ORDER BY time DESC")
   fun installsSince(since: Long): Flow<List<InstalledApp>>
+
+  @Query("SELECT * FROM installed_app ORDER BY time DESC") suspend fun allInstalls(): List<InstalledApp>
+
+  @Upsert suspend fun upsertInstalls(apps: List<InstalledApp>)
 }
 
 class Converters {

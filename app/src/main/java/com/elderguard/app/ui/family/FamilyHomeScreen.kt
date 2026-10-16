@@ -211,6 +211,8 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
   fun refresh() {
     permissions.value = c.permissions.snapshot()
     c.privileged.refresh()
+    // 安装广播在部分厂商系统上会丢，每次打开家人页按系统记的首次安装时间补齐
+    viewModelScope.launch(Dispatchers.Default) { GuardAccessibilityService.syncInstalls(c) }
   }
 
   fun setMode(mode: GuardMode) = viewModelScope.launch { c.settings.setGuardMode(mode) }
