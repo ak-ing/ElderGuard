@@ -26,9 +26,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ElderGuard"
         tools:targetApi="37">
+        <!-- 不出现在最近任务里：ColorOS 等在最近任务里划掉应用等于强行停止，会连守护的无障碍服务、
+             提醒通知、定时检查一起清掉，App 自己无法察觉。长辈看不到它，就不会误划 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:excludeFromRecents="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

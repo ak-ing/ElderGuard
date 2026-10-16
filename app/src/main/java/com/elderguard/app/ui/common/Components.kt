@@ -74,6 +74,7 @@ import com.elderguard.app.container
 import com.elderguard.app.core.EventType
 import com.elderguard.app.system.PermissionKind
 import com.elderguard.app.system.PermissionState
+import com.elderguard.app.guard.GuardNotifier
 import com.elderguard.app.system.AppListPermission
 import com.elderguard.app.system.SettingsNavigator
 import androidx.compose.material.icons.rounded.Apps
@@ -188,7 +189,7 @@ fun rememberPermissionOpener(onResult: () -> Unit): (PermissionKind) -> Unit {
   val context = LocalContext.current
   val notificationLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-      if (!granted) SettingsNavigator.open(context, PermissionKind.POST_NOTIFICATIONS)
+      if (granted) GuardNotifier.notifyExample(context) else SettingsNavigator.open(context, PermissionKind.POST_NOTIFICATIONS)
       onResult()
     }
   val appListLauncher =

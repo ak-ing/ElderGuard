@@ -50,6 +50,32 @@ object GuardNotifier {
     } catch (_: SecurityException) {}
   }
 
+  /**
+   * 刚开启「发送通知」时发一条示范：平时没有要发的通知，家人开了权限却从没见过，会以为没用。
+   * 点一下或几秒后就消失
+   */
+  fun notifyExample(context: Context) {
+    val nm = NotificationManagerCompat.from(context)
+    if (!nm.areNotificationsEnabled()) return
+    ensureChannel(context)
+    val notification =
+      NotificationCompat.Builder(context, CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_shield_check)
+        .setContentTitle("通知已开启")
+        .setContentText("守护被系统关掉时，会在这里提醒「手机守护已停止」")
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setCategory(NotificationCompat.CATEGORY_STATUS)
+        .setAutoCancel(true)
+        .setTimeoutAfter(EXAMPLE_TIMEOUT_MS)
+        .build()
+    try {
+      nm.notify(ID_EXAMPLE, notification)
+    } catch (_: SecurityException) {}
+  }
+
+  private const val ID_EXAMPLE = 2
+  private const val EXAMPLE_TIMEOUT_MS = 8_000L
+
   fun cancelStopped(context: Context) {
     NotificationManagerCompat.from(context).cancel(ID_STOPPED)
   }
