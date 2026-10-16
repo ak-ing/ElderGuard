@@ -26,11 +26,11 @@ object Motion {
   /** 设置向导分步切换的时长 */
   const val DURATION_PAGE = 400
 
-  /** 页面跳转的时长，和车机桌面（Home 工程）的导航动画一致 */
+  /** 页面跳转的时长 */
   const val DURATION_NAV = 500
 
   /**
-   * 页面跳转（前进、返回、预测性返回都用这一个），沿用车机桌面 Home 工程的导航动画：
+   * 页面跳转（前进、返回、预测性返回都用这一个）：
    * 新页面从 0.9 倍放大到原大并淡入，旧页面放大到 1.1 倍并淡出
    */
   fun page(): ContentTransform {

@@ -12,7 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 /**
  * 密码键盘的震动。直接用振动器，不走 View 的触感反馈：
  * 后者受系统「触摸振动」开关控制，很多手机默认关着，按了没感觉。
- * 没有振动器的设备（部分平板、车机）什么也不做。
+ * 没有振动器的设备（部分平板）什么也不做。
  */
 class PinHaptics(context: Context) {
   private val vibrator: Vibrator? =

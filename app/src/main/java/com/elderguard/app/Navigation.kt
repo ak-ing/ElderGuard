@@ -72,7 +72,7 @@ fun AppNavigation(setupDone: Boolean) {
     onBack = { backStack.removeLastOrNull() },
     // 每个页面独立的 ViewModel：出栈即销毁，再次进入是全新状态（如密码页不残留输入）
     entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-    // 和车机桌面一样：新页面放大淡入、旧页面放大淡出；返回（含预测性返回手势）同样
+    // 新页面放大淡入、旧页面放大淡出；返回（含预测性返回手势）同样
     transitionSpec = { pageTransition() },
     popTransitionSpec = { pageTransition() },
     predictivePopTransitionSpec = { pageTransition() },

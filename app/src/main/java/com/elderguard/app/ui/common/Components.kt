@@ -81,7 +81,7 @@ import androidx.compose.material.icons.rounded.Apps
 import com.elderguard.app.theme.AppTheme
 import com.elderguard.app.theme.popSwap
 
-/** 内容限宽居中：手机竖屏铺满，平板/车机横屏不会拉得过宽 */
+/** 内容限宽居中：手机竖屏铺满，平板横屏不会拉得过宽 */
 @Composable
 fun CenteredContent(modifier: Modifier = Modifier, maxWidth: Dp = 640.dp, content: @Composable ColumnScope.() -> Unit) {
   Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
