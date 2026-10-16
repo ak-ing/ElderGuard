@@ -71,6 +71,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elderguard.app.AppContainer
 import com.elderguard.app.container
+import com.elderguard.app.theme.ListFadeIn
+import com.elderguard.app.theme.ListPlacement
+import com.elderguard.app.theme.fadeThrough
+import com.elderguard.app.theme.popSwap
 import com.elderguard.app.core.Trust
 import com.elderguard.app.scan.RiskLevel
 import com.elderguard.app.scan.RiskSignal
@@ -169,7 +173,7 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
       AnimatedContent(
         targetState = result,
         contentKey = { it == null },
-        transitionSpec = { fadeIn(tween(Motion.DURATION_MEDIUM)) togetherWith fadeOut(tween(Motion.DURATION_SHORT)) },
+        transitionSpec = { fadeThrough() },
         label = "scan",
         modifier = Modifier.padding(top = padding.calculateTopPadding()),
       ) { r ->
@@ -251,12 +255,12 @@ private fun Results(
     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = bottomPadding + 24.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
-    item(key = "summary") { ScanSummary(r,ItemModifier.animateItem()) }
+    item(key = "summary") { ScanSummary(r,ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
 
     if (r.apps.isNotEmpty()) {
       sectionHeader("appsHeader", "风险应用", "点一下查看原因并处理")
       itemsIndexed(r.apps, key = { _, a -> "app-${a.pkg}" }, contentType = { _, _ -> "app" }) { i, app ->
-        RiskyAppItem(app, segmentShape(i, r.apps.size), onClick = { onSelect(app) }, modifier = ItemModifier.animateItem())
+        RiskyAppItem(app, segmentShape(i, r.apps.size), onClick = { onSelect(app) }, modifier = ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
       }
     }
 
@@ -265,7 +269,7 @@ private fun Results(
       CheckItem(
         check,
         segmentShape(i, r.checks.size),
-        ItemModifier.animateItem(),
+        ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null),
         onFreeze = if (maintaining && check.freezable.isNotEmpty()) ({ onFreeze(check.freezable) }) else null,
       )
     }
@@ -293,7 +297,7 @@ fun ScanSummary(r: ScanResult, modifier: Modifier = Modifier) {
     }
   Surface(modifier, shape = MaterialTheme.shapes.extraLarge, color = container, contentColor = onContainer) {
     Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
-      AnimatedContent(icon, transitionSpec = { scaleIn() + fadeIn() togetherWith fadeOut() }, label = "summaryIcon") {
+      AnimatedContent(icon, transitionSpec = { popSwap() }, label = "summaryIcon") {
         Icon(it, contentDescription = null, modifier = Modifier.size(40.dp))
       }
       Spacer(Modifier.width(16.dp))

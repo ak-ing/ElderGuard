@@ -76,6 +76,7 @@ import com.elderguard.app.system.PermissionKind
 import com.elderguard.app.system.PermissionState
 import com.elderguard.app.system.SettingsNavigator
 import com.elderguard.app.theme.AppTheme
+import com.elderguard.app.theme.popSwap
 
 /** 内容限宽居中：手机竖屏铺满，平板/车机横屏不会拉得过宽 */
 @Composable
@@ -207,7 +208,7 @@ fun PermissionRow(state: PermissionState, onOpen: (PermissionKind) -> Unit) {
     trailingContent = {
       AnimatedContent(
         targetState = state.granted == true,
-        transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.8f)) togetherWith (fadeOut() + scaleOut(targetScale = 0.8f)) },
+        transitionSpec = { popSwap() },
         label = "permission",
       ) { granted ->
         when {

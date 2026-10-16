@@ -59,6 +59,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elderguard.app.container
+import com.elderguard.app.theme.ListFadeIn
+import com.elderguard.app.theme.ListPlacement
+import com.elderguard.app.theme.popSwap
 import com.elderguard.app.core.GuardMode
 import com.elderguard.app.selftest.CheckId
 import com.elderguard.app.selftest.CheckResult
@@ -223,11 +226,11 @@ fun SelfTestScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
           PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 96.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
       ) {
-        item(key = "intro") { Intro(ItemModifier.animateItem()) }
+        item(key = "intro") { Intro(ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
 
         sectionHeader("checksHeader", "检测项")
         itemsIndexed(state.results, key = { _, r -> "check-${r.id}" }, contentType = { _, _ -> "check" }) { i, r ->
-          ResultItem(r, segmentShape(i, state.results.size), ItemModifier.animateItem())
+          ResultItem(r, segmentShape(i, state.results.size), ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
         }
 
         sectionHeader("quickHeader", "打开快应用的应用", "这台手机上处理快应用链接的应用")
@@ -239,9 +242,9 @@ fun SelfTestScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
 
 private fun androidx.compose.foundation.lazy.LazyListScope.handlerItems(key: String, list: List<Handler>, empty: String) {
   if (list.isEmpty()) {
-    item(key = "$key-empty", contentType = "empty") { EmptyHint(empty, ItemModifier.animateItem()) }
+    item(key = "$key-empty", contentType = "empty") { EmptyHint(empty, ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
   } else {
-    itemsIndexed(list, key = { _, h -> "$key-${h.pkg}" }, contentType = { _, _ -> "handler" }) { i, h -> HandlerItem(h, segmentShape(i, list.size), ItemModifier.animateItem()) }
+    itemsIndexed(list, key = { _, h -> "$key-${h.pkg}" }, contentType = { _, _ -> "handler" }) { i, h -> HandlerItem(h, segmentShape(i, list.size), ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
   }
 }
 
@@ -269,7 +272,7 @@ private fun ResultItem(r: CheckResult, shape: Shape, modifier: Modifier = Modifi
     ListItem(
       colors = groupListItemColors(),
       leadingContent = {
-        AnimatedContent(r.status, transitionSpec = { scaleIn() + fadeIn() togetherWith fadeOut() }, label = "status") { StatusIcon(it) }
+        AnimatedContent(r.status, transitionSpec = { popSwap() }, label = "status") { StatusIcon(it) }
       },
       headlineContent = { Text(r.id.title) },
       supportingContent = { Text(r.detail) },

@@ -75,6 +75,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elderguard.app.AppContainer
 import com.elderguard.app.container
+import com.elderguard.app.theme.ListFadeIn
+import com.elderguard.app.theme.ListPlacement
+import com.elderguard.app.theme.fadeThrough
 import com.elderguard.app.core.GuardMode
 import com.elderguard.app.core.Trust
 import com.elderguard.app.data.CulpritStat
@@ -277,7 +280,7 @@ fun FamilyHomeScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
       ) {
         item(key = "overview") {
-          Overview(s.stats, onFix = { openPermission(PermissionKind.ACCESSIBILITY) }, modifier = ItemModifier.animateItem())
+          Overview(s.stats, onFix = { openPermission(PermissionKind.ACCESSIBILITY) }, modifier = ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
         }
         // 工具：体检、自检、维护模式放一组，不被下面越来越长的列表挤到底
         item(key = "scan") {
@@ -287,50 +290,50 @@ fun FamilyHomeScreen(
             "找出可能在弹广告、难卸载的应用",
             segmentShape(0, 3),
             onOpenScan,
-            ItemModifier.padding(top = 12.dp).animateItem(),
+            ItemModifier.padding(top = 12.dp).animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null),
           )
         }
         item(key = "selfTest") {
-          EntryItem(Icons.AutoMirrored.Rounded.FactCheck, "守护自检", "试一试守护在这台手机上能不能挡掉快应用", segmentShape(1, 3), onOpenSelfTest, ItemModifier.animateItem())
+          EntryItem(Icons.AutoMirrored.Rounded.FactCheck, "守护自检", "试一试守护在这台手机上能不能挡掉快应用", segmentShape(1, 3), onOpenSelfTest, ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
         }
-        item(key = "maint") { MaintenanceItem(s.privilege, s.maintenanceEndsAt, onOpenMaintenance, segmentShape(2, 3), ItemModifier.animateItem()) }
+        item(key = "maint") { MaintenanceItem(s.privilege, s.maintenanceEndsAt, onOpenMaintenance, segmentShape(2, 3), ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
 
         // 列表默认只显示前几条，「查看全部」展开，守护方式、权限等设置不用滚很远
         sectionHeader("culpritsHeader", "需要留意的应用", "近 7 天弹过悬浮窗、发过可疑通知等。点一下可以标记或处理")
         if (s.culprits.isEmpty()) {
-          item(key = "culpritsEmpty", contentType = "empty") { EmptyHint("近 7 天没有记录", ItemModifier.animateItem()) }
+          item(key = "culpritsEmpty", contentType = "empty") { EmptyHint("近 7 天没有记录", ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
         } else {
           collapsible("culprit", s.culprits, PREVIEW_COUNT, culpritsExpanded, { culpritsExpanded = !culpritsExpanded }, { "culprit-${it.stat.culpritPkg}" }) { row, shape ->
-            CulpritItem(row, shape, onClick = { selected = row }, modifier = ItemModifier.animateItem())
+            CulpritItem(row, shape, onClick = { selected = row }, modifier = ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
           }
         }
 
         sectionHeader("installsHeader", "新装的应用", "近 30 天。不认识的可以卸载或冻结")
         if (s.installs.isEmpty()) {
-          item(key = "installsEmpty", contentType = "empty") { EmptyHint("近 30 天没有新装应用", ItemModifier.animateItem()) }
+          item(key = "installsEmpty", contentType = "empty") { EmptyHint("近 30 天没有新装应用", ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
         } else {
           collapsible("install", s.installs, PREVIEW_COUNT, installsExpanded, { installsExpanded = !installsExpanded }, { "install-${it.app.pkg}" }) { row, shape ->
-            InstallItem(row, shape, onClick = { selectedInstall = row }, modifier = ItemModifier.animateItem())
+            InstallItem(row, shape, onClick = { selectedInstall = row }, modifier = ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
           }
         }
 
         sectionHeader("modeHeader", "守护方式")
-        item(key = "mode") { ModeSelector(s.mode, vm::setMode, ItemModifier.padding(vertical = 1.dp).animateItem(), segmentShape(0, 2)) }
+        item(key = "mode") { ModeSelector(s.mode, vm::setMode, ItemModifier.padding(vertical = 1.dp).animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null), segmentShape(0, 2)) }
         item(key = "quickAppRule") {
-          QuickAppRule(s.blockQuickApps, vm::setBlockQuickApps, ItemModifier.padding(vertical = 1.dp).animateItem(), segmentShape(1, 2))
+          QuickAppRule(s.blockQuickApps, vm::setBlockQuickApps, ItemModifier.padding(vertical = 1.dp).animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null), segmentShape(1, 2))
         }
 
         sectionHeader("permHeader", "权限")
         item(key = "perms") {
-          PermissionGroup(s.permissions, startExpanded = s.requiredMissing, onOpen = openPermission, modifier = ItemModifier.animateItem())
+          PermissionGroup(s.permissions, startExpanded = s.requiredMissing, onOpen = openPermission, modifier = ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
         }
 
         sectionHeader("eventsHeader", "最近记录")
         if (s.events.isEmpty()) {
-          item(key = "eventsEmpty", contentType = "empty") { EmptyHint("暂无记录", ItemModifier.animateItem()) }
+          item(key = "eventsEmpty", contentType = "empty") { EmptyHint("暂无记录", ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
         } else {
           collapsible("event", s.events, EVENT_PREVIEW_COUNT, eventsExpanded, { eventsExpanded = !eventsExpanded }, { "event-${it.event.id}" }) { row, shape ->
-            EventItem(row, shape, ItemModifier.animateItem())
+            EventItem(row, shape, ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
           }
         }
       }
@@ -386,7 +389,7 @@ private fun <T> LazyListScope.collapsible(
   itemsIndexed(shown, key = { _, row -> key(row) }, contentType = { _, _ -> type }) { i, row -> content(row, segmentShape(i, total)) }
   if (foldable) {
     item(key = "$type-more", contentType = "more") {
-      MoreItem(if (expanded) "收起" else "查看全部 ${list.size} 个", expanded, segmentShape(total - 1, total), onToggle, ItemModifier.animateItem())
+      MoreItem(if (expanded) "收起" else "查看全部 ${list.size} 个", expanded, segmentShape(total - 1, total), onToggle, ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
     }
   }
 }
@@ -413,7 +416,7 @@ private fun MoreItem(text: String, expanded: Boolean, shape: Shape, onClick: () 
 }
 
 internal fun LazyListScope.sectionHeader(key: String, title: String, supporting: String? = null) {
-  item(key = key, contentType = "header") { SectionHeader(title, ItemModifier.padding(top = 16.dp).animateItem(), supporting) }
+  item(key = key, contentType = "header") { SectionHeader(title, ItemModifier.padding(top = 16.dp).animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null), supporting) }
 }
 
 @Composable
@@ -442,7 +445,7 @@ private fun Overview(stats: FamilyStats, onFix: () -> Unit, modifier: Modifier =
 @Composable
 private fun Stat(label: String, value: Int, modifier: Modifier = Modifier) {
   Column(modifier) {
-    AnimatedContent(value, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "stat") {
+    AnimatedContent(value, transitionSpec = { fadeThrough() }, label = "stat") {
       Text("$it", style = MaterialTheme.typography.headlineMedium)
     }
     Text(label, style = MaterialTheme.typography.bodySmall)
@@ -593,7 +596,7 @@ private fun ModeSelector(selected: GuardMode, onSelect: (GuardMode) -> Unit, mod
         }
       }
       Spacer(Modifier.height(12.dp))
-      AnimatedContent(selected, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "modeDesc") {
+      AnimatedContent(selected, transitionSpec = { fadeThrough() }, label = "modeDesc") {
         Text(it.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
     }

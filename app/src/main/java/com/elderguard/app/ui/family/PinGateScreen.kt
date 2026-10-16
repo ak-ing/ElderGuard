@@ -23,7 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,7 +90,8 @@ fun PinGateScreen(onSuccess: () -> Unit, onCancel: () -> Unit, modifier: Modifie
   val vm = viewModel { PinGateViewModel(container) }
   val state by vm.state.collectAsStateWithLifecycle()
   val haptics = rememberPinHaptics()
-  LaunchedEffect(state.errorTick) { if (state.errorTick > 0) haptics.error() }
+  // 震动是同步调用，不需要协程
+  SideEffect(state.errorTick) { if (state.errorTick > 0) haptics.error() }
 
   Scaffold(
     modifier,

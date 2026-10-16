@@ -67,6 +67,8 @@ import com.elderguard.app.guard.GuardAccessibilityService
 import com.elderguard.app.theme.AppTheme
 import com.elderguard.app.theme.Motion
 import com.elderguard.app.theme.Theme
+import com.elderguard.app.theme.fadeThrough
+import com.elderguard.app.theme.popSwap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -196,7 +198,7 @@ private fun StatusHero(status: GuardStatus) {
         Box(contentAlignment = Alignment.Center) {
           AnimatedContent(
             targetState = status,
-            transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.6f)) togetherWith (fadeOut() + scaleOut(targetScale = 0.6f)) },
+            transitionSpec = { popSwap() },
             label = "statusIcon",
           ) {
             Icon(it.icon, contentDescription = null, tint = accent, modifier = Modifier.size(72.dp))
@@ -204,7 +206,7 @@ private fun StatusHero(status: GuardStatus) {
         }
       }
     }
-    AnimatedContent(targetState = status, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "statusText") {
+    AnimatedContent(targetState = status, transitionSpec = { fadeThrough() }, label = "statusText") {
       Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(it.title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(8.dp))

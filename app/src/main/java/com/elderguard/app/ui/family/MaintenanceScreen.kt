@@ -62,6 +62,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elderguard.app.AppContainer
 import com.elderguard.app.container
+import com.elderguard.app.theme.ListFadeIn
+import com.elderguard.app.theme.ListPlacement
+import com.elderguard.app.theme.fadeThrough
+import com.elderguard.app.theme.popSwap
 import com.elderguard.app.core.Trust
 import com.elderguard.app.privileged.PrivilegeStatus
 import com.elderguard.app.privileged.ShizukuExecutor
@@ -165,16 +169,16 @@ fun MaintenanceScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
       ) {
         item(key = "hero") {
-          Hero(s, busy, onStart = vm::start, onEnd = vm::end, modifier = ItemModifier.animateItem())
+          Hero(s, busy, onStart = vm::start, onEnd = vm::end, modifier = ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
         }
 
         if (active) {
           sectionHeader("pendingHeader", "待处理的应用", "点一下即可冻结、卸载或收回权限")
           if (s.pending.isEmpty()) {
-            item(key = "pendingEmpty", contentType = "empty") { EmptyHint("没有需要处理的应用", ItemModifier.animateItem()) }
+            item(key = "pendingEmpty", contentType = "empty") { EmptyHint("没有需要处理的应用", ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null)) }
           } else {
             itemsIndexed(s.pending, key = { _, row -> "pending-${row.stat.culpritPkg}" }, contentType = { _, _ -> "culprit" }) { i, row ->
-              CulpritItem(row, segmentShape(i, s.pending.size), onClick = { selected = row }, modifier = ItemModifier.animateItem())
+              CulpritItem(row, segmentShape(i, s.pending.size), onClick = { selected = row }, modifier = ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null))
             }
           }
         } else {
@@ -192,14 +196,14 @@ fun MaintenanceScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                   else -> vm.requestPermission()
                 }
               },
-              modifier = ItemModifier.animateItem(),
+              modifier = ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null),
             )
           }
         }
 
         sectionHeader("safetyHeader", "用完即关")
         item(key = "safety") {
-          Surface(ItemModifier.animateItem(), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+          Surface(ItemModifier.animateItem(fadeInSpec = ListFadeIn, placementSpec = ListPlacement, fadeOutSpec = null), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
             Column(Modifier.padding(vertical = 8.dp)) {
               // 与上面「准备」里 40dp 的序号圆对齐
               SheetInfoRow(Icons.Rounded.WifiOff, "结束时自动关闭无线调试", "避免同一网络里的人连接这台手机", slot = 40.dp)
@@ -243,7 +247,7 @@ private fun Hero(s: MaintenanceState, busy: Boolean, onStart: () -> Unit, onEnd:
           size = 48.dp,
         )
         Spacer(Modifier.width(16.dp))
-        AnimatedContent(active, transitionSpec = { fadeIn(tween(Motion.DURATION_MEDIUM)) togetherWith fadeOut() }, label = "heroText") {
+        AnimatedContent(active, transitionSpec = { fadeThrough() }, label = "heroText") {
           Column {
             Text(if (it) "正在维护" else "直接处理流氓应用", style = MaterialTheme.typography.titleLarge)
             Text(
@@ -259,7 +263,7 @@ private fun Hero(s: MaintenanceState, busy: Boolean, onStart: () -> Unit, onEnd:
       Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         AnimatedContent(
           targetState = Triple(active, busy, s.status == PrivilegeStatus.READY),
-          transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.9f)) togetherWith (fadeOut() + scaleOut(targetScale = 0.9f)) },
+          transitionSpec = { popSwap() },
           label = "heroButton",
         ) { (isActive, isBusy, ready) ->
           when {
@@ -305,7 +309,7 @@ private fun StepItem(index: Int, step: Step, shape: Shape, onAction: () -> Unit,
     ListItem(
       colors = groupListItemColors(),
       leadingContent = {
-        AnimatedContent(step.done, transitionSpec = { scaleIn() + fadeIn() togetherWith fadeOut() }, label = "stepIcon") { done ->
+        AnimatedContent(step.done, transitionSpec = { popSwap() }, label = "stepIcon") { done ->
           Surface(
             Modifier.size(40.dp),
             shape = CircleShape,

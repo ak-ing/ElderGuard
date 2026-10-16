@@ -38,6 +38,20 @@ object Motion {
     return (scaleIn(spec, initialScale = 0.9f) + fadeIn(spec)) togetherWith (scaleOut(spec, targetScale = 1.1f) + fadeOut(spec))
   }
 
+  /**
+   * 内容替换（数字、说明文字、状态）：旧的先快速淡出，新的稍后淡入（Material 的 fade through）。
+   * 两边同时半透明叠在一起会看到重影
+   */
+  fun fadeThrough(): ContentTransform =
+    fadeIn(tween(DURATION_SHORT + 60, delayMillis = 90)) togetherWith fadeOut(tween(90))
+
+  /** 图标替换：旧图标先缩小淡出，新图标再放大淡入，两个不叠在一起 */
+  fun popSwap(): ContentTransform {
+    val enter = tween<Float>(DURATION_SHORT + 60, delayMillis = 90, easing = EmphasizedDecelerate)
+    val exit = tween<Float>(90)
+    return (scaleIn(enter, initialScale = 0.6f) + fadeIn(enter)) togetherWith (scaleOut(exit, targetScale = 0.6f) + fadeOut(exit))
+  }
+
   /** 同一页里的分步内容（设置向导）：整块左右滑动，内容背景透明，所以前后两步不重叠 */
   fun slideStep(forward: Boolean): ContentTransform {
     val sign = if (forward) 1 else -1
@@ -49,3 +63,15 @@ object Motion {
 }
 
 fun <S> AnimatedContentTransitionScope<S>.pageTransition(): ContentTransform = Motion.page()
+
+fun <S> AnimatedContentTransitionScope<S>.fadeThrough(): ContentTransform = Motion.fadeThrough()
+
+fun <S> AnimatedContentTransitionScope<S>.popSwap(): ContentTransform = Motion.popSwap()
+
+/*
+ * 列表项增删（展开、收起、标记后移出列表）：
+ * 移走的项立刻消失、不淡出——否则下面的项往上移时会从它半透明的影子上滑过去，看到残影；
+ * 新出现的项等下面的项让开位置后再淡入，同样不和移动中的项叠在一起
+ */
+val ListPlacement = tween<IntOffset>(Motion.DURATION_MEDIUM - 50, easing = Motion.Emphasized)
+val ListFadeIn = tween<Float>(Motion.DURATION_SHORT, delayMillis = Motion.DURATION_MEDIUM - 150)

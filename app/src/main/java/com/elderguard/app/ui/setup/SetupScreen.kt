@@ -53,7 +53,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,6 +71,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elderguard.app.AppContainer
 import com.elderguard.app.container
+import com.elderguard.app.theme.fadeThrough
 import com.elderguard.app.core.GuardMode
 import com.elderguard.app.core.Trust
 import com.elderguard.app.scan.RiskyApp
@@ -216,7 +216,7 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
   var selected by remember { mutableStateOf<RiskyApp?>(null) }
   val haptics = rememberPinHaptics()
   // 放在这里而不是密码页里：设置成功时密码页已经切走
-  LaunchedEffect(state.pinDoneTick) { if (state.pinDoneTick > 0) haptics.success() }
+  SideEffect(state.pinDoneTick) { if (state.pinDoneTick > 0) haptics.success() }
   BackHandler(enabled = state.step != SetupStep.INTRO) { vm.back() }
   val openPermission = rememberPermissionOpener(onResult = vm::refreshPermissions)
   val progress by
@@ -316,7 +316,7 @@ private fun BottomAction(state: SetupState, onNext: () -> Unit) {
         enabled = state.step != SetupStep.PERMISSIONS || state.requiredGranted,
         modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().height(52.dp),
       ) {
-        AnimatedContent(label ?: "", transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "actionLabel") { Text(it) }
+        AnimatedContent(label ?: "", transitionSpec = { fadeThrough() }, label = "actionLabel") { Text(it) }
       }
     }
   }
@@ -360,9 +360,9 @@ private fun Feature(icon: ImageVector, title: String, body: String) {
 @Composable
 private fun PinStep(state: SetupState, onInput: (String) -> Unit) {
   val haptics = rememberPinHaptics()
-  LaunchedEffect(state.errorTick) { if (state.errorTick > 0) haptics.error() }
+  SideEffect(state.errorTick) { if (state.errorTick > 0) haptics.error() }
   Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-    AnimatedContent(state.step, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "pinTitle") { step ->
+    AnimatedContent(state.step, transitionSpec = { fadeThrough() }, label = "pinTitle") { step ->
       Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(if (step == SetupStep.SET_PIN) "设置家人密码" else "再输入一次", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
@@ -402,7 +402,7 @@ private fun CheckupStep(scan: ScanResult?, onSelect: (RiskyApp) -> Unit) {
   AnimatedContent(
     scan,
     contentKey = { it == null },
-    transitionSpec = { fadeIn(tween(Motion.DURATION_MEDIUM)) togetherWith fadeOut(tween(Motion.DURATION_SHORT)) },
+    transitionSpec = { fadeThrough() },
     label = "checkup",
   ) { r ->
     if (r == null) {
