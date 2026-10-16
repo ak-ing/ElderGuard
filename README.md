@@ -44,6 +44,23 @@
 
 > 1.1.0 起发布签名换成了 CI 专用签名。装过更早版本的手机需要先卸载再安装，原来的记录和密码会清空。
 
+### 只从这里下载
+
+官方安装包只在本仓库的 [Releases](https://github.com/ak-ing/ElderGuard/releases) 发布，由 GitHub Actions 从源码构建并签名。
+别处下载的「长辈守护」可能被人改过。不放心时可以在电脑上核对签名：
+
+```bash
+apksigner verify --print-certs ElderGuard-x.y.z.apk
+```
+
+输出里的证书 SHA-256 应该是：
+
+```
+6e8a15d3e64efb46f02b8e219b592788617bb86b8452e4354d13e79c735b6919
+```
+
+不一致就不要安装。
+
 ## 权限
 
 | 权限 | 用来做什么 |
@@ -101,3 +118,8 @@ git push origin v1.1.0
 ## 文档
 
 设计和实现细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+## 许可证
+
+[GPL-3.0](LICENSE)。可以自由使用、修改和分发；分发修改过的版本时，必须同样以 GPL-3.0 公开源码，
+让基于本项目的守护类应用也保持可审计。
