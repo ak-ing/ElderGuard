@@ -146,13 +146,22 @@ fun SheetSectionTitle(text: String, modifier: Modifier = Modifier) {
   )
 }
 
-/** 底部面板里的一行说明：与表头 48dp 应用图标同宽，图标中心和文字起点都对齐 */
+/**
+ * 一行说明：图标占位与同组的图标同宽，图标中心和文字起点都对齐。
+ * 底部面板里与表头 48dp 应用图标对齐；页面卡片里与 40dp 的色调图标对齐
+ */
 @Composable
-fun SheetInfoRow(icon: ImageVector, title: String, supporting: String?, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+fun SheetInfoRow(
+  icon: ImageVector,
+  title: String,
+  supporting: String?,
+  tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+  slot: Dp = 48.dp,
+) {
   ListItem(
     colors = groupListItemColors(),
     leadingContent = {
-      Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+      Box(Modifier.size(slot), contentAlignment = Alignment.Center) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
       }
     },
@@ -244,7 +253,7 @@ fun AppSheet(
       SheetSectionTitle(if (maintaining) "标记" else "处理")
       if (installed) {
         if (trust != Trust.FLAGGED) {
-          SheetAction(Icons.Rounded.Block, "标记为流氓应用", "以后它的弹窗会被自动拦截") { act { onTrust(Trust.FLAGGED) } }
+          SheetAction(Icons.Rounded.Block, "标记为流氓应用", "以后它一出现就自动挡掉") { act { onTrust(Trust.FLAGGED) } }
         }
         if (trust != Trust.TRUSTED) {
           SheetAction(Icons.Rounded.CheckCircle, "标记为正常应用", "不再记录、不再提示") { act { onTrust(Trust.TRUSTED) } }

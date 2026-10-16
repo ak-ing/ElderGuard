@@ -1,28 +1,13 @@
 {
-  "version": 1,
-  "interactionWindowMs": 2500,
-  "unlockWindowMs": 8000,
+  "version": 2,
   "autoActionCooldownMs": 10000,
   "quickAppEngines": [
     "com.huawei.fastapp",
+    "com.hihonor.fastapp",
     "com.miui.hybrid",
     "com.nearme.instant.platform",
     "com.vivo.hybrid",
     "com.meizu.flyme.directservice"
-  ],
-  "appStores": [
-    "com.huawei.appmarket",
-    "com.hihonor.appmarket",
-    "com.xiaomi.market",
-    "com.heytap.market",
-    "com.oppo.market",
-    "com.bbk.appstore",
-    "com.meizu.mstore",
-    "com.tencent.android.qqdownloader",
-    "com.qihoo.appstore",
-    "com.baidu.appsearch",
-    "com.wandoujia.phoenix2",
-    "com.android.vending"
   ],
   "protectedPackages": [
     "android",
@@ -33,6 +18,7 @@
     "com.android.incallui",
     "com.android.server.telecom",
     "com.android.phone",
+    "com.android.contacts",
     "com.android.deskclock",
     "com.google.android.deskclock",
     "com.android.permissioncontroller",
@@ -41,12 +27,26 @@
     "com.google.android.packageinstaller",
     "com.miui.securitycenter",
     "com.huawei.systemmanager",
+    "com.hihonor.systemmanager",
     "com.coloros.safecenter",
     "com.iqoo.secure",
+    "com.vivo.permissionmanager",
+    "com.samsung.android.lool",
+    "com.oplus.safecenter",
+    "com.oplus.securitypermission",
+    "com.oplus.battery",
     "moe.shizuku.privileged.api"
   ],
   "suspiciousKeywords": [
     "病毒", "中毒", "木马", "内存不足", "垃圾过多", "手机卡顿", "立即清理", "一键加速",
     "手机过热", "电池损耗", "中奖", "恭喜您", "领取红包", "现金红包", "免费领取", "话费到账"
+  ],
+  "chatPackages": [
+    "com.tencent.mm",
+    "com.tencent.mobileqq",
+    "com.tencent.tim",
+    "com.android.mms",
+    "com.google.android.apps.messaging",
+    "com.samsung.android.messaging"
   ]
 }

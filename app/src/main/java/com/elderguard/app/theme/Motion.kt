@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.unit.IntOffset
 
 /** Material 3 动效规范的缓动与时长 */
 object Motion {
@@ -20,19 +21,42 @@ object Motion {
   const val DURATION_MEDIUM = 300
   const val DURATION_LONG = 450
 
-  /** 共享轴 X：进入方向 [forward] 为 true 时从右侧滑入，返回时从左侧 */
-  fun sharedAxisX(forward: Boolean, slideFraction: Float = 0.12f): ContentTransform {
-    val sign = if (forward) 1 else -1
-    val enter =
-      slideInHorizontally(tween(DURATION_MEDIUM, easing = EmphasizedDecelerate)) { (it * slideFraction).toInt() * sign } +
-        fadeIn(tween(210, delayMillis = 90, easing = EmphasizedDecelerate))
-    val exit =
-      slideOutHorizontally(tween(DURATION_MEDIUM, easing = EmphasizedAccelerate)) { -(it * slideFraction).toInt() * sign } +
-        fadeOut(tween(90, easing = EmphasizedAccelerate))
-    return enter togetherWith exit
+  /** 页面跳转用的时长：整页移动比组件动画长一些，看得清方向 */
+  const val DURATION_PAGE = 400
+
+  /**
+   * 页面推入/退出（和系统打开新页面一致）：
+   * 前进时新页面从右边整页滑入、盖在上面，旧页面向左挪 1/4 并变暗；返回时反过来，旧页面在下面露出来。
+   * 页面都是不透明的 Scaffold，叠在一起不会透出来
+   */
+  fun push(forward: Boolean): ContentTransform {
+    val spec = tween<IntOffset>(DURATION_PAGE, easing = Emphasized)
+    val fade = tween<Float>(DURATION_PAGE, easing = Emphasized)
+    return if (forward) {
+      ContentTransform(
+        targetContentEnter = slideInHorizontally(spec) { it },
+        initialContentExit = slideOutHorizontally(spec) { -it / 4 } + fadeOut(fade, targetAlpha = 0.5f),
+      )
+    } else {
+      ContentTransform(
+        targetContentEnter = slideInHorizontally(spec) { -it / 4 } + fadeIn(fade, initialAlpha = 0.5f),
+        initialContentExit = slideOutHorizontally(spec) { it },
+        // 返回时露出来的页面在下面，离开的页面盖在上面滑走
+        targetContentZIndex = -1f,
+      )
+    }
   }
+
+  /** 同一页里的分步内容（设置向导）：整块左右滑动，内容背景透明，所以前后两步不重叠 */
+  fun slideStep(forward: Boolean): ContentTransform {
+    val sign = if (forward) 1 else -1
+    val spec = tween<IntOffset>(DURATION_PAGE, easing = Emphasized)
+    return (slideInHorizontally(spec) { it * sign } + fadeIn(tween(DURATION_PAGE / 2, delayMillis = DURATION_PAGE / 4))) togetherWith
+      (slideOutHorizontally(spec) { -it * sign } + fadeOut(tween(DURATION_PAGE / 2)))
+  }
+
 }
 
-fun <S> AnimatedContentTransitionScope<S>.sharedAxisForward(): ContentTransform = Motion.sharedAxisX(forward = true)
+fun <S> AnimatedContentTransitionScope<S>.pushForward(): ContentTransform = Motion.push(forward = true)
 
-fun <S> AnimatedContentTransitionScope<S>.sharedAxisBackward(): ContentTransform = Motion.sharedAxisX(forward = false)
+fun <S> AnimatedContentTransitionScope<S>.pushBackward(): ContentTransform = Motion.push(forward = false)

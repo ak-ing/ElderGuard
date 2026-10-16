@@ -8,16 +8,13 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class GuardRules(
   val version: Int,
-  /** 前台切换前这么久内有过点击/输入，视为用户主动打开 */
-  val interactionWindowMs: Long,
-  /** 解锁后这么久内出现的非主动界面，判为解锁弹窗 */
-  val unlockWindowMs: Long,
   /** 同一元凶两次自动处理的最小间隔，防止和它拉锯 */
   val autoActionCooldownMs: Long,
   val quickAppEngines: Set<String>,
-  val appStores: Set<String>,
   val protectedPackages: Set<String>,
   val suspiciousKeywords: List<String>,
+  /** 聊天应用：通知是亲友发的消息，不做关键词判定 */
+  val chatPackages: Set<String> = emptySet(),
 ) {
   companion object {
     private val json = Json { ignoreUnknownKeys = true }

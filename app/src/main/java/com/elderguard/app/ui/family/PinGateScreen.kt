@@ -27,9 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,6 +39,7 @@ import com.elderguard.app.ui.common.PIN_LENGTH
 import com.elderguard.app.ui.common.PinDots
 import com.elderguard.app.ui.common.PinPad
 import com.elderguard.app.ui.common.TonalIcon
+import com.elderguard.app.ui.common.rememberPinHaptics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -51,8 +50,6 @@ data class PinGateState(val input: String = "", val error: String? = null, val e
 class PinGateViewModel(private val c: AppContainer) : ViewModel() {
   private val _state = MutableStateFlow(PinGateState())
   val state = _state.asStateFlow()
-  private var failures = 0
-  private var lockedUntil = 0L
 
   fun onInput(value: String, onSuccess: () -> Unit) {
     val now = SystemClock.elapsedRealtime()
@@ -78,6 +75,9 @@ class PinGateViewModel(private val c: AppContainer) : ViewModel() {
   }
 
   private companion object {
+    // 放在进程级：密码页每次进入都是新的 ViewModel，退出重进不能清零
+    var failures = 0
+    var lockedUntil = 0L
     const val MAX_FAILURES = 5
     const val LOCK_MS = 30_000L
   }
@@ -89,8 +89,8 @@ fun PinGateScreen(onSuccess: () -> Unit, onCancel: () -> Unit, modifier: Modifie
   val container = LocalContext.current.container
   val vm = viewModel { PinGateViewModel(container) }
   val state by vm.state.collectAsStateWithLifecycle()
-  val haptics = LocalHapticFeedback.current
-  LaunchedEffect(state.errorTick) { if (state.errorTick > 0) haptics.performHapticFeedback(HapticFeedbackType.Reject) }
+  val haptics = rememberPinHaptics()
+  LaunchedEffect(state.errorTick) { if (state.errorTick > 0) haptics.error() }
 
   Scaffold(
     modifier,
@@ -120,7 +120,15 @@ fun PinGateScreen(onSuccess: () -> Unit, onCancel: () -> Unit, modifier: Modifie
           Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
       }
-      PinPad(state.input, { vm.onInput(it, onSuccess) })
+      PinPad(
+        state.input,
+        {
+          vm.onInput(it) {
+            haptics.success()
+            onSuccess()
+          }
+        },
+      )
     }
   }
 }

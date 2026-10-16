@@ -1,12 +1,16 @@
 package com.elderguard.app.guard
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.elderguard.app.MainActivity
 import com.elderguard.app.R
 
@@ -17,7 +21,10 @@ object GuardNotifier {
 
   fun notifyStopped(context: Context) {
     val nm = NotificationManagerCompat.from(context)
-    if (!nm.areNotificationsEnabled()) return
+    val permitted =
+      Build.VERSION.SDK_INT < 33 ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    if (!permitted || !nm.areNotificationsEnabled()) return
     ensureChannel(context)
     val open =
       PendingIntent.getActivity(
@@ -30,14 +37,17 @@ object GuardNotifier {
       NotificationCompat.Builder(context, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_shield_check)
         .setContentTitle("手机守护已停止")
-        .setContentText("弹窗广告不会再被拦下，请让家人帮忙重新打开")
+        .setContentText("广告不会再被挡掉，请让家人帮忙重新打开")
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setCategory(NotificationCompat.CATEGORY_STATUS)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setContentIntent(open)
         .build()
-    runCatching { nm.notify(ID_STOPPED, notification) }
+    // 检查之后用户仍可能在设置里收回权限
+    try {
+      nm.notify(ID_STOPPED, notification)
+    } catch (_: SecurityException) {}
   }
 
   fun cancelStopped(context: Context) {

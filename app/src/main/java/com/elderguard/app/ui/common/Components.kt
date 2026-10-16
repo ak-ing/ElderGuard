@@ -5,6 +5,16 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.elderguard.app.system.PermissionTier
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -25,15 +35,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Accessibility
 import androidx.compose.material.icons.rounded.BatteryChargingFull
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.NotificationAdd
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -136,10 +145,12 @@ fun groupListItemColors() = ListItemDefaults.colors(containerColor = Color.Trans
 fun AppIcon(pkg: String, size: Dp = 40.dp) {
   val context = LocalContext.current
   val px = with(LocalDensity.current) { size.roundToPx() }
-  // 后台解码，加载完成后淡入，不阻塞列表首帧
+  // 已解码过的直接显示（滚回来、再次进入不闪白）；没有的后台解码，加载完成后淡入，不阻塞列表首帧
+  val appInfo = context.container.appInfo
+  val cached = remember(pkg, px) { appInfo.cachedIcon(pkg, px)?.asImageBitmap() }
   val bitmap by
-    produceState<ImageBitmap?>(null, pkg, px) {
-      value = withContext(Dispatchers.IO) { context.container.appInfo.icon(pkg, px)?.asImageBitmap() }
+    produceState<ImageBitmap?>(cached, pkg, px) {
+      value = cached ?: withContext(Dispatchers.IO) { appInfo.icon(pkg, px)?.asImageBitmap() }
     }
   Crossfade(bitmap, modifier = Modifier.size(size), label = "appIcon") { image ->
     if (image != null) Image(image, contentDescription = null, modifier = Modifier.size(size))
@@ -160,10 +171,9 @@ val PermissionKind.icon: ImageVector
 val EventType.icon: ImageVector
   get() =
     when (this) {
-      EventType.UNSOLICITED_LAUNCH -> Icons.Rounded.Campaign
-      EventType.UNLOCK_POPUP -> Icons.Rounded.LockOpen
       EventType.QUICK_APP_LAUNCH -> Icons.Rounded.Bolt
-      EventType.STORE_REDIRECT -> Icons.Rounded.Storefront
+      EventType.FLAGGED_LAUNCH -> Icons.Rounded.Block
+      EventType.OVERLAY_POPUP -> Icons.Rounded.Campaign
       EventType.SUSPICIOUS_NOTIFICATION -> Icons.Rounded.NotificationsActive
       EventType.PRIVILEGE_REQUEST -> Icons.Rounded.Key
     }
@@ -208,6 +218,42 @@ fun PermissionRow(state: PermissionState, onOpen: (PermissionKind) -> Unit) {
       }
     },
   )
+}
+
+/**
+ * 按分组列出权限：需要开启 / 建议开启 / 守护经常被关掉时再开（默认收起，有未开的必需项时不影响）。
+ * 放在 [GroupCard] 等容器里使用；分组标题与 ListItem 的 16dp 内边距对齐
+ */
+@Composable
+fun PermissionTiers(permissions: List<PermissionState>, onOpen: (PermissionKind) -> Unit) {
+  Column {
+    PermissionTier.entries.forEach { tier ->
+      val items = permissions.filter { it.kind.tier == tier }
+      if (items.isEmpty()) return@forEach
+      if (tier == PermissionTier.IF_STOPPED) {
+        var expanded by rememberSaveable { mutableStateOf(false) }
+        val rotation by animateFloatAsState(if (expanded) 180f else 0f, label = "tierExpand")
+        ListItem(
+          modifier = Modifier.clickable { expanded = !expanded },
+          colors = groupListItemColors(),
+          headlineContent = { Text(tier.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) },
+          supportingContent = { Text("部分手机省电时会关掉守护，遇到再开") },
+          trailingContent = { Icon(Icons.Rounded.ExpandMore, contentDescription = null, modifier = Modifier.graphicsLayer { rotationZ = rotation }) },
+        )
+        AnimatedVisibility(expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+          Column { items.forEach { PermissionRow(it, onOpen) } }
+        }
+      } else {
+        Text(
+          tier.title,
+          style = MaterialTheme.typography.labelLarge,
+          color = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+        )
+        items.forEach { PermissionRow(it, onOpen) }
+      }
+    }
+  }
 }
 
 /** 左右抖动，用于密码错误；[trigger] 每变化一次抖一次 */

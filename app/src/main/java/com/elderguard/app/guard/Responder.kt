@@ -46,6 +46,7 @@ class Responder(
           when (detection.type) {
             EventType.SUSPICIOUS_NOTIFICATION -> "已拦下一条可疑通知"
             EventType.PRIVILEGE_REQUEST -> "已拦下一个危险的授权请求"
+            EventType.QUICK_APP_LAUNCH -> "已挡掉快应用"
             else -> "已帮您挡掉一个广告"
           }
         )

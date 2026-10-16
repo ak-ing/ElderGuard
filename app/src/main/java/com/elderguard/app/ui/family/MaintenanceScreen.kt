@@ -1,7 +1,7 @@
 package com.elderguard.app.ui.family
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -99,9 +99,10 @@ class MaintenanceViewModel(private val c: AppContainer) : ViewModel() {
         val flaggedIdle =
           verdicts.filter { it.value == Trust.FLAGGED && it.key !in ranked }.keys.map { com.elderguard.app.data.CulpritStat(it, 0, 0) }
         (ranking + flaggedIdle)
-          .filter { verdicts[it.culpritPkg] != Trust.TRUSTED && c.appInfo.isInstalled(it.culpritPkg) && !c.appInfo.isFrozen(it.culpritPkg) }
-          .map { CulpritRow(it, c.appInfo.label(it.culpritPkg), verdicts[it.culpritPkg], installed = true, frozen = false) }
-          .sortedByDescending { it.trust == Trust.FLAGGED }
+          .filter { verdicts[it.culpritPkg] != Trust.TRUSTED && c.appInfo.isInstalled(it.culpritPkg) }
+          // 冻结的也留在列表里（排在最后），否则维护时找不到地方解冻
+          .map { CulpritRow(it, c.appInfo.label(it.culpritPkg), verdicts[it.culpritPkg], installed = true, frozen = c.appInfo.isFrozen(it.culpritPkg)) }
+          .sortedWith(compareBy<CulpritRow> { it.frozen }.thenByDescending { it.trust == Trust.FLAGGED })
       }
       .flowOn(Dispatchers.Default)
 
@@ -170,23 +171,23 @@ fun MaintenanceScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
         if (active) {
           sectionHeader("pendingHeader", "待处理的应用", "点一下即可冻结、卸载或收回权限")
           if (s.pending.isEmpty()) {
-            item(key = "pendingEmpty") { EmptyHint("没有需要处理的应用", ItemModifier.animateItem()) }
+            item(key = "pendingEmpty", contentType = "empty") { EmptyHint("没有需要处理的应用", ItemModifier.animateItem()) }
           } else {
-            itemsIndexed(s.pending, key = { _, row -> "pending-${row.stat.culpritPkg}" }) { i, row ->
+            itemsIndexed(s.pending, key = { _, row -> "pending-${row.stat.culpritPkg}" }, contentType = { _, _ -> "culprit" }) { i, row ->
               CulpritItem(row, segmentShape(i, s.pending.size), onClick = { selected = row }, modifier = ItemModifier.animateItem())
             }
           }
         } else {
           sectionHeader("stepsHeader", "准备", "只需在第一次使用时完成")
           val steps = steps(s.status)
-          itemsIndexed(steps, key = { _, step -> "step-${step.title}" }) { i, step ->
+          itemsIndexed(steps, key = { _, step -> "step-${step.title}" }, contentType = { _, _ -> "step" }) { i, step ->
             StepItem(
               index = i + 1,
               step = step,
               shape = segmentShape(i, steps.size),
               onAction = {
                 when (i) {
-                  0 -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_DOWNLOAD)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                  0 -> context.startActivity(Intent(Intent.ACTION_VIEW, SHIZUKU_DOWNLOAD.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                   1 -> context.packageManager.getLaunchIntentForPackage(ShizukuExecutor.SHIZUKU_PACKAGE)?.let(context::startActivity)
                   else -> vm.requestPermission()
                 }
@@ -200,9 +201,10 @@ fun MaintenanceScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
         item(key = "safety") {
           Surface(ItemModifier.animateItem(), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
             Column(Modifier.padding(vertical = 8.dp)) {
-              SheetInfoRow(Icons.Rounded.WifiOff, "结束时自动关闭无线调试", "避免同一网络里的人连接这台手机")
-              SheetInfoRow(Icons.Rounded.Timer, "30 分钟没有操作自动结束", "忘了结束也没关系")
-              SheetInfoRow(Icons.Rounded.GppGood, "平时拒绝一切 Shizuku 授权", "不在维护时，有应用索要高级权限会被自动挡掉并记录")
+              // 与上面「准备」里 40dp 的序号圆对齐
+              SheetInfoRow(Icons.Rounded.WifiOff, "结束时自动关闭无线调试", "避免同一网络里的人连接这台手机", slot = 40.dp)
+              SheetInfoRow(Icons.Rounded.Timer, "30 分钟没有操作自动结束", "忘了结束也没关系", slot = 40.dp)
+              SheetInfoRow(Icons.Rounded.GppGood, "平时拒绝一切 Shizuku 授权", "不在维护时，有应用索要高级权限会被自动挡掉并记录", slot = 40.dp)
             }
           }
         }

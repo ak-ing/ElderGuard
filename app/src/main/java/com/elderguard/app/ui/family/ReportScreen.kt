@@ -132,7 +132,7 @@ fun ReportScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
       Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
       topBar = { AlignedLargeTopAppBar("分享报告", onBack, maxWidth, ContentMaxWidth + 32.dp, scrollBehavior) },
       floatingActionButton = {
-        AnimatedVisibility(report != null, enter = fadeIn() + scaleIn()) {
+        AnimatedVisibility(report != null, Modifier.padding(end = fabEndPadding(maxWidth)), enter = fadeIn() + scaleIn()) {
           ExtendedFloatingActionButton(
             onClick = {
               scope.launch {
@@ -248,7 +248,7 @@ private fun TopApp(row: CulpritRow) {
       val note =
         when {
           !row.installed -> "已卸载"
-          row.trust == Trust.FLAGGED -> "已标记流氓，弹窗自动挡掉"
+          row.trust == Trust.FLAGGED -> "已标记流氓，一出现就挡掉"
           else -> row.stat.eventTypes.joinToString("、") { it.label }
         }
       Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)

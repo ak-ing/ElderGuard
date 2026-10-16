@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
@@ -13,12 +15,27 @@ android {
     applicationId = "com.elderguard.app"
     minSdk = 26
     targetSdk = 37
-    versionCode = 1
-    versionName = "0.1.0"
+    versionCode = 2
+    versionName = "1.1.0"
+  }
+
+  // 发布签名放在仓库外：根目录 keystore.properties（已忽略）指向 jks；没有时 release 包不签名
+  val keystoreProps =
+    rootProject.file("keystore.properties").takeIf { it.exists() }?.let { f -> Properties().apply { f.inputStream().use(::load) } }
+  signingConfigs {
+    if (keystoreProps != null) {
+      create("release") {
+        storeFile = file(keystoreProps.getProperty("storeFile"))
+        storePassword = keystoreProps.getProperty("storePassword")
+        keyAlias = keystoreProps.getProperty("keyAlias")
+        keyPassword = keystoreProps.getProperty("keyPassword")
+      }
+    }
   }
 
   buildTypes {
     release {
+      signingConfig = signingConfigs.findByName("release")
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

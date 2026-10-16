@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">长辈守护</string>
     <string name="accessibility_service_label">长辈守护</string>
-    <string name="accessibility_service_description">用于发现自动弹出的广告、快应用和诱导跳转，并帮长辈自动挡掉。所有记录只保存在本机，不会上传。</string>
+    <string name="accessibility_service_description">用于挡掉快应用和家人标记的流氓应用，记下弹出悬浮窗的应用和新装的应用。只看界面属于哪个应用，不读点击和输入的内容。所有记录只保存在本机，不会上传。</string>
     <string name="notification_listener_label">长辈守护·通知检查</string>
 </resources>

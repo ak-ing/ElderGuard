@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -123,6 +124,13 @@ class ScanViewModel(private val c: AppContainer) : ViewModel() {
     }
   }
 
+  /** 维护模式下冻结快应用引擎等系统项里的应用，完成后重新体检 */
+  fun freeze(pkgs: List<String>) {
+    pkgs.forEachIndexed { i, pkg ->
+      actions.run(pkg, c.appInfo.label(pkg), AppAction.FREEZE) { if (i == pkgs.lastIndex) scan() }
+    }
+  }
+
   fun setTrust(pkg: String, trust: Trust?) {
     viewModelScope.launch { c.guardRepository.setTrust(pkg, trust) }
     // 本地同步结论：标记为正常后从结果里移除
@@ -165,7 +173,8 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
         label = "scan",
         modifier = Modifier.padding(top = padding.calculateTopPadding()),
       ) { r ->
-        if (r == null) Scanning() else Results(r, bottomPadding = padding.calculateBottomPadding(), onSelect = { selected = it })
+        if (r == null) Scanning()
+        else Results(r, bottomPadding = padding.calculateBottomPadding(), onSelect = { selected = it }, onFreeze = vm::freeze)
       }
     }
   }
@@ -230,7 +239,13 @@ private fun Scanning() {
 }
 
 @Composable
-private fun Results(r: ScanResult, bottomPadding: androidx.compose.ui.unit.Dp, onSelect: (RiskyApp) -> Unit) {
+private fun Results(
+  r: ScanResult,
+  bottomPadding: androidx.compose.ui.unit.Dp,
+  onSelect: (RiskyApp) -> Unit,
+  onFreeze: (List<String>) -> Unit,
+) {
+  val maintaining = LocalContext.current.container.maintenance.endsAt.collectAsStateWithLifecycle().value != null
   LazyColumn(
     Modifier.fillMaxSize(),
     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = bottomPadding + 24.dp),
@@ -240,14 +255,19 @@ private fun Results(r: ScanResult, bottomPadding: androidx.compose.ui.unit.Dp, o
 
     if (r.apps.isNotEmpty()) {
       sectionHeader("appsHeader", "风险应用", "点一下查看原因并处理")
-      itemsIndexed(r.apps, key = { _, a -> "app-${a.pkg}" }) { i, app ->
+      itemsIndexed(r.apps, key = { _, a -> "app-${a.pkg}" }, contentType = { _, _ -> "app" }) { i, app ->
         RiskyAppItem(app, segmentShape(i, r.apps.size), onClick = { onSelect(app) }, modifier = ItemModifier.animateItem())
       }
     }
 
     sectionHeader("checksHeader", "系统检查")
-    itemsIndexed(r.checks, key = { _, c -> "check-${c.title}" }) { i, check ->
-      CheckItem(check, segmentShape(i, r.checks.size), ItemModifier.animateItem())
+    itemsIndexed(r.checks, key = { _, c -> "check-${c.title}" }, contentType = { _, _ -> "check" }) { i, check ->
+      CheckItem(
+        check,
+        segmentShape(i, r.checks.size),
+        ItemModifier.animateItem(),
+        onFreeze = if (maintaining && check.freezable.isNotEmpty()) ({ onFreeze(check.freezable) }) else null,
+      )
     }
   }
 }
@@ -309,7 +329,7 @@ private fun LevelLabel(app: RiskyApp) {
 }
 
 @Composable
-fun CheckItem(check: SystemCheck, shape: Shape, modifier: Modifier = Modifier) {
+fun CheckItem(check: SystemCheck, shape: Shape, modifier: Modifier = Modifier, onFreeze: (() -> Unit)? = null) {
   val color: Color = if (check.ok) MaterialTheme.colorScheme.primary else AppTheme.extendedColors.warning
   Surface(modifier.padding(vertical = 1.dp), shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
     ListItem(
@@ -323,11 +343,12 @@ fun CheckItem(check: SystemCheck, shape: Shape, modifier: Modifier = Modifier) {
       },
       headlineContent = { Text(check.title) },
       supportingContent = { Text(check.detail) },
+      trailingContent = onFreeze?.let { { FilledTonalButton(onClick = it) { Text("冻结") } } },
     )
   }
 }
 
-private val RiskSignal.icon: ImageVector
+internal val RiskSignal.icon: ImageVector
   get() =
     when (this) {
       RiskSignal.HARASSMENT -> Icons.Rounded.Campaign

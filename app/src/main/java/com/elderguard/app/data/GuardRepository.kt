@@ -43,6 +43,19 @@ class GuardRepository(private val dao: GuardDao) {
     )
   }
 
+  suspend fun latestEvents(limit: Int): List<GuardEvent> = dao.latest(limit)
+
+  /** 自检：[since] 之后 [pkg] 出现在前台的第一条记录 */
+  suspend fun firstEventFor(pkg: String, since: Long): GuardEvent? = dao.firstEventFor(pkg, since)
+
+  /** 自检结束后删掉测试产生的记录，不影响元凶榜 */
+  suspend fun deleteEventsFor(pkg: String, since: Long) = dao.deleteEventsFor(pkg, since)
+
+  suspend fun recordInstall(app: InstalledApp) = dao.upsertInstall(app)
+
+  /** 近 30 天新装的应用 */
+  fun recentInstalls(): Flow<List<InstalledApp>> = dao.installsSince(System.currentTimeMillis() - 30 * DAY_MS)
+
   /** trust 为 null 表示清除结论，恢复「待观察」 */
   suspend fun setTrust(pkg: String, trust: Trust?) {
     if (trust == null) dao.deleteVerdict(pkg) else dao.upsertVerdict(AppVerdict(pkg, trust, System.currentTimeMillis()))

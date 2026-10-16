@@ -9,3 +9,8 @@
 /captures/
 .externalNativeBuild/
 .cxx/
+
+# 发布签名，不进仓库
+keystore.properties
+*.jks
+*.keystore

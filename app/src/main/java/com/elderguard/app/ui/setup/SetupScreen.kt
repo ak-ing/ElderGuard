@@ -54,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,9 +62,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -83,7 +82,8 @@ import com.elderguard.app.theme.Motion
 import com.elderguard.app.ui.common.CenteredContent
 import com.elderguard.app.ui.common.GroupCard
 import com.elderguard.app.ui.common.PIN_LENGTH
-import com.elderguard.app.ui.common.PermissionRow
+import com.elderguard.app.ui.common.PermissionTiers
+import com.elderguard.app.ui.common.rememberPinHaptics
 import com.elderguard.app.ui.common.PinDots
 import com.elderguard.app.ui.common.PinPad
 import com.elderguard.app.ui.common.SectionHeader
@@ -108,8 +108,10 @@ data class SetupState(
   val pinInput: String = "",
   val firstPin: String = "",
   val pinError: String? = null,
-  /** 每次密码出错 +1，驱动抖动动画 */
+  /** 每次密码出错 +1，驱动抖动动画和震动 */
   val errorTick: Int = 0,
+  /** 两次密码一致、设置成功时 +1，驱动确认震动 */
+  val pinDoneTick: Int = 0,
   val permissions: List<PermissionState> = emptyList(),
   val mode: GuardMode = GuardMode.AUTO,
   /** 首次体检结果；null 表示正在扫描 */
@@ -145,6 +147,7 @@ class SetupViewModel(private val c: AppContainer) : ViewModel() {
         if (value == s.firstPin) {
           viewModelScope.launch { c.settings.setPin(value) }
           goTo(SetupStep.PERMISSIONS)
+          _state.update { it.copy(pinDoneTick = it.pinDoneTick + 1) }
         } else {
           _state.update {
             it.copy(pinInput = "", firstPin = "", step = SetupStep.SET_PIN, pinError = "两次输入不一致，请重新设置", errorTick = it.errorTick + 1)
@@ -211,6 +214,9 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
     onPauseOrDispose {}
   }
   var selected by remember { mutableStateOf<RiskyApp?>(null) }
+  val haptics = rememberPinHaptics()
+  // 放在这里而不是密码页里：设置成功时密码页已经切走
+  LaunchedEffect(state.pinDoneTick) { if (state.pinDoneTick > 0) haptics.success() }
   BackHandler(enabled = state.step != SetupStep.INTRO) { vm.back() }
   val openPermission = rememberPermissionOpener(onResult = vm::refreshPermissions)
   val progress by
@@ -222,7 +228,7 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
 
   Scaffold(
     modifier,
-    topBar = { SetupTopBar(state.step, progress, onBack = { vm.back() }) },
+    topBar = { SetupTopBar(state.step, { progress }, onBack = { vm.back() }) },
     bottomBar = {
       BottomAction(state, onNext = {
         when (state.step) {
@@ -237,7 +243,7 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
   ) { padding ->
     AnimatedContent(
       targetState = state.step,
-      transitionSpec = { Motion.sharedAxisX(forward = targetState.ordinal > initialState.ordinal) },
+      transitionSpec = { Motion.slideStep(forward = targetState.ordinal > initialState.ordinal) },
       contentKey = { if (it == SetupStep.CONFIRM_PIN) SetupStep.SET_PIN else it },
       label = "setupStep",
       modifier = Modifier.padding(padding),
@@ -246,7 +252,8 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
         when (step) {
           SetupStep.INTRO -> IntroStep()
           SetupStep.SET_PIN, SetupStep.CONFIRM_PIN -> PinStep(state, vm::onPinInput)
-          SetupStep.PERMISSIONS -> PermissionStep(state.permissions, openPermission)
+          SetupStep.PERMISSIONS ->
+            PermissionStep(state.permissions, openPermission)
           SetupStep.MODE -> ModeStep(state.mode, vm::selectMode)
           SetupStep.CHECKUP -> CheckupStep(state.scan, onSelect = { selected = it })
         }
@@ -255,18 +262,17 @@ fun SetupScreen(onFinished: () -> Unit, modifier: Modifier = Modifier) {
   }
 
   // 列表变化后（标记、卸载）面板里显示最新状态
-  selected?.let { app ->
-    val current = state.scan?.apps?.find { it.pkg == app.pkg }
-    if (current == null) {
-      selected = null
-    } else {
-      RiskyAppSheet(current, onDismiss = { selected = null }, onTrust = { vm.setTrust(current.pkg, it) })
-    }
+  val current = selected?.let { app -> state.scan?.apps?.find { it.pkg == app.pkg } }
+  if (current != null) {
+    RiskyAppSheet(current, onDismiss = { selected = null }, onTrust = { vm.setTrust(current.pkg, it) })
+  } else if (selected != null) {
+    // 应用已不在列表里（被卸载）：组合完成后再清掉，不在组合过程中改刚读过的状态
+    SideEffect { selected = null }
   }
 }
 
 @Composable
-private fun SetupTopBar(step: SetupStep, progress: Float, onBack: () -> Unit) {
+private fun SetupTopBar(step: SetupStep, progress: () -> Float, onBack: () -> Unit) {
   // 与正文同宽、同边距，进度条两端和内容左右边缘对齐
   CenteredContent(
     Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
@@ -282,7 +288,8 @@ private fun SetupTopBar(step: SetupStep, progress: Float, onBack: () -> Unit) {
       Spacer(Modifier.weight(1f))
       Text("${step.ordinal + 1} / ${SetupStep.entries.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
+    // 进度动画只在绘制时读取，不重组顶栏
+    LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
   }
 }
 
@@ -332,10 +339,10 @@ private fun StepHeader(icon: ImageVector, title: String, body: String) {
 
 @Composable
 private fun IntroStep() {
-  StepHeader(Icons.Rounded.Shield, "长辈守护", "帮家里长辈挡掉自动弹出的广告、快应用和诱导跳转。设置过程请由家人完成。")
+  StepHeader(Icons.Rounded.Shield, "长辈守护", "帮家里长辈挡掉快应用和流氓应用，找出弹广告的应用，交给家人处理。设置过程请由家人完成。")
   GroupCard {
-    Feature(Icons.Rounded.Block, "自动拦截", "快应用、跳转应用商店一出现就自动返回")
-    Feature(Icons.AutoMirrored.Rounded.ManageSearch, "找出元凶", "记录每一次没点却自己弹出的界面，定位是哪个 App")
+    Feature(Icons.Rounded.Block, "自动挡掉", "快应用、家人标记的流氓应用一出现就自动返回")
+    Feature(Icons.AutoMirrored.Rounded.ManageSearch, "找出元凶", "记下谁弹了悬浮窗、发了可疑通知、新装了什么应用")
     Feature(Icons.Rounded.CloudOff, "只在本机", "不联网、不上传，代码开源可审计")
   }
 }
@@ -352,10 +359,8 @@ private fun Feature(icon: ImageVector, title: String, body: String) {
 
 @Composable
 private fun PinStep(state: SetupState, onInput: (String) -> Unit) {
-  val haptics = LocalHapticFeedback.current
-  LaunchedEffect(state.errorTick) {
-    if (state.errorTick > 0) haptics.performHapticFeedback(HapticFeedbackType.Reject)
-  }
+  val haptics = rememberPinHaptics()
+  LaunchedEffect(state.errorTick) { if (state.errorTick > 0) haptics.error() }
   Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
     AnimatedContent(state.step, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "pinTitle") { step ->
       Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -382,7 +387,7 @@ private fun PinStep(state: SetupState, onInput: (String) -> Unit) {
 @Composable
 private fun PermissionStep(permissions: List<PermissionState>, onOpen: (PermissionKind) -> Unit) {
   StepHeader(Icons.Rounded.Key, "开启守护权限", "点「开启」会跳到系统设置，打开后返回这里，状态会自动更新。只有无障碍服务是必须的。")
-  GroupCard { permissions.forEach { PermissionRow(it, onOpen) } }
+  GroupCard { PermissionTiers(permissions, onOpen) }
 }
 
 @Composable

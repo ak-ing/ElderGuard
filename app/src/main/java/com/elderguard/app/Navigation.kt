@@ -1,20 +1,28 @@
 package com.elderguard.app
 
+import android.os.SystemClock
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
-import com.elderguard.app.theme.sharedAxisBackward
-import com.elderguard.app.theme.sharedAxisForward
+import com.elderguard.app.theme.pushBackward
+import com.elderguard.app.theme.pushForward
 import com.elderguard.app.ui.elder.ElderHomeScreen
 import com.elderguard.app.ui.family.FamilyHomeScreen
 import com.elderguard.app.ui.family.MaintenanceScreen
 import com.elderguard.app.ui.family.PinGateScreen
 import com.elderguard.app.ui.family.ReportScreen
 import com.elderguard.app.ui.family.ScanScreen
+import com.elderguard.app.ui.family.SelfTestScreen
 import com.elderguard.app.ui.setup.SetupScreen
 import kotlinx.serialization.Serializable
 
@@ -39,19 +47,36 @@ import kotlinx.serialization.Serializable
 /** 分享报告图片 */
 @Serializable data object Report : NavKey
 
+/** 守护自检：模拟广告跳转，检查守护是否有效，生成报告 */
+@Serializable data object SelfTest : NavKey
+
+/** 离开 App 超过这么久，家人页自动锁上 */
+private const val FAMILY_LOCK_MS = 5 * 60 * 1000L
+
 @Composable
 fun AppNavigation(setupDone: Boolean) {
   val backStack = rememberNavBackStack(if (setupDone) ElderHome else Setup)
+
+  // 家人离开后过一会儿，家人页自动锁上，免得长辈再打开时停在家人页。
+  // 去系统设置、Shizuku 里操作一下再回来不用重输密码；进程被杀后恢复的返回栈同样要锁
+  var stoppedAt by rememberSaveable { mutableLongStateOf(-1L) }
+  LifecycleEventEffect(Lifecycle.Event.ON_STOP) { stoppedAt = SystemClock.elapsedRealtime() }
+  LifecycleEventEffect(Lifecycle.Event.ON_START) {
+    val away = SystemClock.elapsedRealtime() - stoppedAt
+    if (stoppedAt >= 0 && away !in 0..FAMILY_LOCK_MS && backStack.firstOrNull() == ElderHome && backStack.size > 1) {
+      backStack.retainAll { it == ElderHome }
+    }
+  }
 
   NavDisplay(
     backStack = backStack,
     onBack = { backStack.removeLastOrNull() },
     // 每个页面独立的 ViewModel：出栈即销毁，再次进入是全新状态（如密码页不残留输入）
     entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-    // Material 共享轴 X：前进从右滑入，返回（含预测性返回手势）从左滑入
-    transitionSpec = { sharedAxisForward() },
-    popTransitionSpec = { sharedAxisBackward() },
-    predictivePopTransitionSpec = { sharedAxisBackward() },
+    // 整页推入：前进时新页面从右边滑入盖上来，返回（含预测性返回手势）时当前页向右滑走、露出上一页
+    transitionSpec = { pushForward() },
+    popTransitionSpec = { pushBackward() },
+    predictivePopTransitionSpec = { pushBackward() },
     entryProvider =
       entryProvider {
         entry<Setup> {
@@ -79,8 +104,10 @@ fun AppNavigation(setupDone: Boolean) {
             onOpenScan = { backStack.add(Scan) },
             onOpenMaintenance = { backStack.add(Maintenance) },
             onOpenReport = { backStack.add(Report) },
+            onOpenSelfTest = { backStack.add(SelfTest) },
           )
         }
+        entry<SelfTest> { SelfTestScreen(onBack = { backStack.removeLastOrNull() }) }
         entry<Scan> { ScanScreen(onBack = { backStack.removeLastOrNull() }) }
         entry<Maintenance> { MaintenanceScreen(onBack = { backStack.removeLastOrNull() }) }
         entry<Report> { ReportScreen(onBack = { backStack.removeLastOrNull() }) }

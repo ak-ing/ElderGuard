@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.automirrored.rounded.FactCheck
 import androidx.compose.material.icons.rounded.GppBad
 import androidx.compose.material.icons.rounded.HealthAndSafety
 import androidx.compose.material.icons.rounded.Settings
@@ -57,10 +58,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -83,7 +86,18 @@ import com.elderguard.app.ui.common.AppIcon
 import com.elderguard.app.ui.common.AppSheet
 import com.elderguard.app.ui.common.BadgeTone
 import com.elderguard.app.ui.common.EmptyHint
-import com.elderguard.app.ui.common.PermissionRow
+import com.elderguard.app.ui.common.IconLabel
+import com.elderguard.app.ui.common.PermissionTiers
+import com.elderguard.app.system.PermissionTier
+import com.elderguard.app.data.InstalledApp
+import com.elderguard.app.scan.RiskSignal
+import com.elderguard.app.theme.AppTheme
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.Switch
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ReportProblem
 import com.elderguard.app.ui.common.SectionHeader
 import com.elderguard.app.ui.common.SheetInfoRow
 import com.elderguard.app.ui.common.SheetSectionTitle
@@ -107,13 +121,22 @@ data class CulpritRow(val stat: CulpritStat, val label: String, val trust: Trust
 
 data class EventRow(val event: GuardEvent, val culpritLabel: String, val targetLabel: String)
 
+/** 新装的应用；[source] 为 null 表示系统没记录来源；[signals] 为空表示已卸载或没有风险信号 */
+data class InstallRow(val app: InstalledApp, val culprit: CulpritRow, val source: String?, val signals: List<RiskSignal>) {
+  val risky: Boolean
+    get() = signals.any { it.strong }
+}
+
 data class FamilyStats(val guardRunning: Boolean, val weekTotal: Int, val todayHandled: Int, val flagged: Int)
 
 data class FamilyState(
   val stats: FamilyStats,
   val permissions: List<PermissionState>,
   val mode: GuardMode,
+  /** 家人规则：挡掉快应用 */
+  val blockQuickApps: Boolean,
   val culprits: List<CulpritRow>,
+  val installs: List<InstallRow>,
   val events: List<EventRow>,
   val privilege: PrivilegeStatus,
   /** 维护模式自动结束时间；null 表示未在维护 */
@@ -150,18 +173,32 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
 
   private val maintenance = combine(c.privileged.status, c.maintenance.endsAt, ::Pair)
 
+  private val installs =
+    combine(c.guardRepository.recentInstalls(), c.guardRepository.verdicts, actions.revision) { list, verdicts, _ ->
+      val signals = c.scanner.assess(list.map { it.pkg })
+      list.map { app ->
+        val pkg = app.pkg
+        val row = CulpritRow(CulpritStat(pkg, 0, 0), c.appInfo.label(pkg), verdicts[pkg], c.appInfo.isInstalled(pkg), c.appInfo.isFrozen(pkg))
+        InstallRow(app, row, c.appInfo.sourceLabel(app), signals[pkg].orEmpty())
+      }
+    }
+
+  private val rules = combine(c.settings.guardMode, c.settings.blockQuickApps, ::Pair)
+
   val state =
-    combine(stats, permissions, c.settings.guardMode, culprits, combine(c.guardRepository.recentEvents(), maintenance, ::Pair)) {
+    combine(stats, permissions, rules, combine(culprits, installs, ::Pair), combine(c.guardRepository.recentEvents(), maintenance, ::Pair)) {
         stats,
         perms,
-        mode,
-        rows,
+        (mode, blockQuickApps),
+        (rows, installed),
         (events, maint) ->
         FamilyState(
           stats = stats,
           permissions = perms,
           mode = mode,
+          blockQuickApps = blockQuickApps,
           culprits = rows,
+          installs = installed,
           events = events.map { EventRow(it, c.appInfo.label(it.culpritPkg), c.appInfo.label(it.targetPkg)) },
           privilege = maint.first,
           maintenanceEndsAt = maint.second,
@@ -178,11 +215,16 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
 
   fun setMode(mode: GuardMode) = viewModelScope.launch { c.settings.setGuardMode(mode) }
 
+  fun setBlockQuickApps(block: Boolean) = viewModelScope.launch { c.settings.setBlockQuickApps(block) }
+
   fun setTrust(pkg: String, trust: Trust?) = viewModelScope.launch { c.guardRepository.setTrust(pkg, trust) }
 }
 
 internal val ContentMaxWidth = 720.dp
 internal val ItemModifier = Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth()
+
+/** 宽屏上内容居中，悬浮按钮右移到和内容右边缘对齐，而不是贴着屏幕边 */
+internal fun fabEndPadding(screenWidth: Dp): Dp = ((screenWidth - ContentMaxWidth - 32.dp) / 2).coerceAtLeast(0.dp)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -191,6 +233,7 @@ fun FamilyHomeScreen(
   onOpenScan: () -> Unit,
   onOpenMaintenance: () -> Unit,
   onOpenReport: () -> Unit,
+  onOpenSelfTest: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val context = LocalContext.current
@@ -204,6 +247,7 @@ fun FamilyHomeScreen(
   val openPermission = rememberPermissionOpener(onResult = vm::refresh)
   val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
   var selected by remember { mutableStateOf<CulpritRow?>(null) }
+  var selectedInstall by remember { mutableStateOf<InstallRow?>(null) }
   val snackbar = remember { SnackbarHostState() }
   ShowMessages(vm.actions.messages, snackbar)
 
@@ -227,19 +271,43 @@ fun FamilyHomeScreen(
         item(key = "overview") {
           Overview(s.stats, onFix = { openPermission(PermissionKind.ACCESSIBILITY) }, modifier = ItemModifier.animateItem())
         }
-        item(key = "scan") { ScanEntry(onOpenScan, ItemModifier.padding(top = 12.dp).animateItem()) }
+        item(key = "scan") {
+          EntryItem(
+            Icons.Rounded.HealthAndSafety,
+            "手机体检",
+            "找出可能在弹广告、难卸载的应用",
+            segmentShape(0, 2),
+            onOpenScan,
+            ItemModifier.padding(top = 12.dp).animateItem(),
+          )
+        }
+        item(key = "selfTest") {
+          EntryItem(Icons.AutoMirrored.Rounded.FactCheck, "守护自检", "试一试守护在这台手机上能不能挡掉快应用", segmentShape(1, 2), onOpenSelfTest, ItemModifier.animateItem())
+        }
 
-        sectionHeader("culpritsHeader", "可疑应用", "近 7 天。点一下可以标记或处理")
+        sectionHeader("culpritsHeader", "需要留意的应用", "近 7 天弹过悬浮窗、发过可疑通知等。点一下可以标记或处理")
         if (s.culprits.isEmpty()) {
-          item(key = "culpritsEmpty") { EmptyHint("还没有发现可疑应用", ItemModifier.animateItem()) }
+          item(key = "culpritsEmpty", contentType = "empty") { EmptyHint("近 7 天没有记录", ItemModifier.animateItem()) }
         } else {
-          itemsIndexed(s.culprits, key = { _, row -> "culprit-${row.stat.culpritPkg}" }) { i, row ->
+          itemsIndexed(s.culprits, key = { _, row -> "culprit-${row.stat.culpritPkg}" }, contentType = { _, _ -> "culprit" }) { i, row ->
             CulpritItem(row, segmentShape(i, s.culprits.size), onClick = { selected = row }, modifier = ItemModifier.animateItem())
           }
         }
 
+        sectionHeader("installsHeader", "新装的应用", "近 30 天。不认识的可以卸载或冻结")
+        if (s.installs.isEmpty()) {
+          item(key = "installsEmpty", contentType = "empty") { EmptyHint("近 30 天没有新装应用", ItemModifier.animateItem()) }
+        } else {
+          itemsIndexed(s.installs, key = { _, row -> "install-${row.app.pkg}" }, contentType = { _, _ -> "install" }) { i, row ->
+            InstallItem(row, segmentShape(i, s.installs.size), onClick = { selectedInstall = row }, modifier = ItemModifier.animateItem())
+          }
+        }
+
         sectionHeader("modeHeader", "守护方式")
-        item(key = "mode") { ModeSelector(s.mode, vm::setMode, ItemModifier.animateItem()) }
+        item(key = "mode") { ModeSelector(s.mode, vm::setMode, ItemModifier.padding(vertical = 1.dp).animateItem(), segmentShape(0, 2)) }
+        item(key = "quickAppRule") {
+          QuickAppRule(s.blockQuickApps, vm::setBlockQuickApps, ItemModifier.padding(vertical = 1.dp).animateItem(), segmentShape(1, 2))
+        }
 
         sectionHeader("permHeader", "权限")
         item(key = "perms") {
@@ -251,9 +319,9 @@ fun FamilyHomeScreen(
 
         sectionHeader("eventsHeader", "最近记录")
         if (s.events.isEmpty()) {
-          item(key = "eventsEmpty") { EmptyHint("暂无记录", ItemModifier.animateItem()) }
+          item(key = "eventsEmpty", contentType = "empty") { EmptyHint("暂无记录", ItemModifier.animateItem()) }
         } else {
-          itemsIndexed(s.events, key = { _, row -> "event-${row.event.id}" }) { i, row ->
+          itemsIndexed(s.events, key = { _, row -> "event-${row.event.id}" }, contentType = { _, _ -> "event" }) { i, row ->
             EventItem(row, segmentShape(i, s.events.size), ItemModifier.animateItem())
           }
         }
@@ -271,10 +339,25 @@ fun FamilyHomeScreen(
       onAction = { vm.actions.run(row.stat.culpritPkg, row.label, it) },
     )
   }
+
+  selectedInstall?.let { picked ->
+    // 用最新状态：标记、冻结后面板里的结论跟着变
+    val install = state?.installs?.find { it.app.pkg == picked.app.pkg } ?: picked
+    val row = install.culprit
+    val revision by vm.actions.revision.collectAsStateWithLifecycle()
+    CulpritSheet(
+      row,
+      maintenanceActions = rememberMaintenanceActions(row.stat.culpritPkg, revision),
+      onDismiss = { selectedInstall = null },
+      onTrust = { vm.setTrust(row.stat.culpritPkg, it) },
+      onAction = { vm.actions.run(row.stat.culpritPkg, row.label, it) },
+      install = install,
+    )
+  }
 }
 
 internal fun LazyListScope.sectionHeader(key: String, title: String, supporting: String? = null) {
-  item(key = key) { SectionHeader(title, ItemModifier.padding(top = 16.dp).animateItem(), supporting) }
+  item(key = key, contentType = "header") { SectionHeader(title, ItemModifier.padding(top = 16.dp).animateItem(), supporting) }
 }
 
 @Composable
@@ -311,20 +394,16 @@ private fun Stat(label: String, value: Int, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ScanEntry(onClick: () -> Unit, modifier: Modifier = Modifier) {
-  Surface(modifier, shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+private fun EntryItem(icon: ImageVector, title: String, supporting: String, shape: Shape, onClick: () -> Unit, modifier: Modifier = Modifier) {
+  Surface(modifier.padding(vertical = 1.dp), shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
     ListItem(
       modifier = Modifier.clickable(onClick = onClick),
       colors = groupListItemColors(),
       leadingContent = {
-        TonalIcon(
-          Icons.Rounded.HealthAndSafety,
-          container = MaterialTheme.colorScheme.tertiaryContainer,
-          content = MaterialTheme.colorScheme.onTertiaryContainer,
-        )
+        TonalIcon(icon, container = MaterialTheme.colorScheme.tertiaryContainer, content = MaterialTheme.colorScheme.onTertiaryContainer)
       },
-      headlineContent = { Text("手机体检") },
-      supportingContent = { Text("找出可能在弹广告、难卸载的应用") },
+      headlineContent = { Text(title) },
+      supportingContent = { Text(supporting) },
       trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null) },
     )
   }
@@ -359,6 +438,8 @@ internal fun CulpritSheet(
   onDismiss: () -> Unit,
   onTrust: (Trust?) -> Unit,
   onAction: (AppAction) -> Unit,
+  /** 从「新装的应用」打开时，显示怎么装上的、有哪些风险信号 */
+  install: InstallRow? = null,
 ) {
   val context = LocalContext.current
   val events by
@@ -367,7 +448,13 @@ internal fun CulpritSheet(
   AppSheet(
     pkg = row.stat.culpritPkg,
     label = row.label,
-    subtitle = if (row.stat.count > 0) "近 7 天 ${row.stat.count} 次" else row.stat.culpritPkg,
+    subtitle =
+      when {
+        install != null ->
+          install.source?.let { "${formatTime(install.app.time)} 从「$it」装上" } ?: "${formatTime(install.app.time)} 装上 · 来源未知"
+        row.stat.count > 0 -> "近 7 天 ${row.stat.count} 次"
+        else -> row.stat.culpritPkg
+      },
     trust = row.trust,
     installed = row.installed,
     onDismiss = onDismiss,
@@ -378,6 +465,10 @@ internal fun CulpritSheet(
     maintenanceActions = maintenanceActions,
     onAction = onAction,
   ) {
+    if (install != null && install.signals.isNotEmpty()) {
+      SheetSectionTitle("它能做什么")
+      install.signals.forEach { SheetInfoRow(it.icon, it.title, it.detail) }
+    }
     if (events.isNotEmpty()) {
       SheetSectionTitle("它做了什么")
       events.forEach { e ->
@@ -391,10 +482,48 @@ internal fun CulpritSheet(
   }
 }
 
+@Composable
+private fun InstallItem(row: InstallRow, shape: Shape, onClick: () -> Unit, modifier: Modifier = Modifier) {
+  Surface(modifier.padding(vertical = 1.dp), shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    ListItem(
+      modifier = Modifier.clickable(onClick = onClick),
+      colors = groupListItemColors(),
+      leadingContent = { AppIcon(row.app.pkg) },
+      headlineContent = { Text(row.culprit.label) },
+      supportingContent = { Text("${row.source ?: "来源未知"} · ${formatTime(row.app.time)}", maxLines = 1) },
+      trailingContent = {
+        val c = row.culprit
+        // 没有结论又带强风险信号的，提醒家人看一眼；其余显示结论
+        if (c.trust == null && c.installed && !c.frozen && row.risky) {
+          IconLabel(Icons.Rounded.ReportProblem, "需留意", AppTheme.extendedColors.warning)
+        } else if (c.trust == null && c.installed && !c.frozen) {
+          IconLabel(Icons.Rounded.CheckCircle, "无风险信号", MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+          VerdictLabel(c.trust, c.installed, c.frozen)
+        }
+      },
+    )
+  }
+}
+
+@Composable
+private fun QuickAppRule(block: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, shape: Shape) {
+  Surface(modifier, shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    ListItem(
+      modifier = Modifier.toggleable(block, role = Role.Switch, onValueChange = onChange),
+      colors = groupListItemColors(),
+      leadingContent = { TonalIcon(Icons.Rounded.Bolt) },
+      headlineContent = { Text("挡掉快应用") },
+      supportingContent = { Text("广告常拉起快应用；长辈很少主动用。关掉后快应用不再被挡") },
+      trailingContent = { Switch(checked = block, onCheckedChange = null) },
+    )
+  }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModeSelector(selected: GuardMode, onSelect: (GuardMode) -> Unit, modifier: Modifier = Modifier) {
-  Surface(modifier, shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+private fun ModeSelector(selected: GuardMode, onSelect: (GuardMode) -> Unit, modifier: Modifier = Modifier, shape: Shape) {
+  Surface(modifier, shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
     Column(Modifier.padding(16.dp)) {
       SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
         GuardMode.entries.forEachIndexed { i, mode ->
@@ -424,7 +553,9 @@ private fun PermissionGroup(
 ) {
   var expanded by rememberSaveable { mutableStateOf(startExpanded) }
   val rotation by animateFloatAsState(if (expanded) 180f else 0f, label = "expandIcon")
-  val granted = permissions.count { it.granted == true }
+  // 只数需要和建议开启的：「守护经常被关掉时再开」那几项平时不用开
+  val main = permissions.filter { it.kind.tier != PermissionTier.IF_STOPPED }
+  val granted = main.count { it.granted == true }
   Surface(modifier, shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
     Column {
       ListItem(
@@ -432,11 +563,11 @@ private fun PermissionGroup(
         colors = groupListItemColors(),
         leadingContent = { TonalIcon(Icons.Rounded.Settings) },
         headlineContent = { Text("守护权限") },
-        supportingContent = { Text("已开启 $granted / ${permissions.size} 项") },
-        trailingContent = { Icon(Icons.Rounded.ExpandMore, contentDescription = null, modifier = Modifier.rotate(rotation)) },
+        supportingContent = { Text("已开启 $granted / ${main.size} 项") },
+        trailingContent = { Icon(Icons.Rounded.ExpandMore, contentDescription = null, modifier = Modifier.graphicsLayer { rotationZ = rotation }) },
       )
       AnimatedVisibility(expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-        Column(Modifier.padding(bottom = 8.dp)) { permissions.forEach { PermissionRow(it, onOpen) } }
+        Column(Modifier.padding(bottom = 8.dp)) { PermissionTiers(permissions, onOpen) }
       }
     }
   }

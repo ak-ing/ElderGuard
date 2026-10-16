@@ -31,6 +31,13 @@ class SettingsRepository(context: Context) {
     store.edit { it[GUARD_MODE] = mode.name }
   }
 
+  /** 家人规则：挡掉快应用（默认开） */
+  val blockQuickApps: Flow<Boolean> = store.data.map { it[BLOCK_QUICK_APPS] ?: true }
+
+  suspend fun setBlockQuickApps(block: Boolean) {
+    store.edit { it[BLOCK_QUICK_APPS] = block }
+  }
+
   /** 维护模式的结束时间（墙上时间）；进程被杀后据此补做收尾 */
   suspend fun maintenanceEndsAt(): Long? = store.data.first()[MAINTENANCE_ENDS_AT]
 
@@ -75,6 +82,7 @@ class SettingsRepository(context: Context) {
   private companion object {
     val SETUP_DONE = booleanPreferencesKey("setup_done")
     val GUARD_MODE = stringPreferencesKey("guard_mode")
+    val BLOCK_QUICK_APPS = booleanPreferencesKey("block_quick_apps")
     val PIN_HASH = stringPreferencesKey("pin_hash")
     val PIN_SALT = stringPreferencesKey("pin_salt")
     val MAINTENANCE_ENDS_AT = longPreferencesKey("maintenance_ends_at")

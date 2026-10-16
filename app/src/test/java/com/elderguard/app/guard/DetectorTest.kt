@@ -12,15 +12,11 @@ import org.junit.Before
 import org.junit.Test
 
 class DetectorTest {
-  private var now = 100_000L
   private val rules =
     GuardRules(
-      version = 1,
-      interactionWindowMs = 2_500,
-      unlockWindowMs = 8_000,
+      version = 2,
       autoActionCooldownMs = 10_000,
       quickAppEngines = setOf("com.miui.hybrid"),
-      appStores = setOf("com.xiaomi.market"),
       protectedPackages = setOf("com.android.systemui", "com.android.dialer"),
       suspiciousKeywords = listOf("病毒", "中奖"),
     )
@@ -28,137 +24,139 @@ class DetectorTest {
 
   @Before
   fun setUp() {
-    detector = Detector(rules) { now }
+    detector = Detector(rules)
     detector.systemPackages = setOf("launcher")
     detector.selfPackage = "self"
   }
 
-  private fun advance(ms: Long) {
-    now += ms
-  }
-
   @Test
-  fun userClickThenSwitch_isNotDetected() {
+  fun ordinaryApps_areNeverJudged() {
+    // 不推测是不是长辈点的：普通 App 来到前台一律不处理、不记录
     detector.onForegroundChanged("launcher", null)
-    detector.onUserInteraction()
-    advance(500)
+    assertNull(detector.onForegroundChanged("com.ad.cleaner", "AdActivity"))
     assertNull(detector.onForegroundChanged("com.tencent.mm", null))
+    assertNull(detector.onForegroundChanged("com.xiaomi.market", null))
   }
 
   @Test
-  fun switchWithoutClick_isUnsolicitedAndCulpritIsTarget() {
+  fun quickApp_isBlockedAndCreditedToAppInUse() {
+    detector.onForegroundChanged("com.ad.game", null)
+    val d = detector.onForegroundChanged("com.miui.hybrid", "HybridActivity")!!
+    assertEquals(EventType.QUICK_APP_LAUNCH, d.type)
+    assertEquals("com.ad.game", d.culpritPkg)
+    assertEquals("com.miui.hybrid", d.targetPkg)
+    assertTrue(d.autoBlockable)
+  }
+
+  @Test
+  fun quickAppFromLauncher_isBlockedAndCreditedToEngine() {
+    // 规则本身就是挡掉快应用，从桌面打开也挡；只是不记在桌面名下
     detector.onForegroundChanged("launcher", null)
-    advance(60_000)
-    val d = detector.onForegroundChanged("com.ad.cleaner", "AdActivity")!!
-    assertEquals(EventType.UNSOLICITED_LAUNCH, d.type)
-    assertEquals("com.ad.cleaner", d.culpritPkg)
-    assertFalse("未标记的 App 只记录不处理", d.autoBlockable)
+    val d = detector.onForegroundChanged("com.miui.hybrid", null)!!
+    assertEquals("com.miui.hybrid", d.culpritPkg)
+    assertTrue(d.autoBlockable)
   }
 
   @Test
-  fun flaggedApp_isAutoBlockable() {
+  fun quickApp_allowedWhenRuleOff() {
+    detector.blockQuickApps = false
+    detector.onForegroundChanged("com.ad.game", null)
+    assertNull(detector.onForegroundChanged("com.miui.hybrid", null))
+  }
+
+  @Test
+  fun quickApp_firstForegroundAfterStart_isStillBlocked() {
+    val d = detector.onForegroundChanged("com.miui.hybrid", null)!!
+    assertEquals("com.miui.hybrid", d.culpritPkg)
+  }
+
+  @Test
+  fun flaggedApp_isBlockedWheneverItAppears() {
     detector.verdicts = mapOf("com.ad.cleaner" to Trust.FLAGGED)
     detector.onForegroundChanged("launcher", null)
-    advance(60_000)
-    assertTrue(detector.onForegroundChanged("com.ad.cleaner", null)!!.autoBlockable)
-  }
-
-  @Test
-  fun quickAppWithoutClick_culpritIsPreviousApp() {
-    detector.onForegroundChanged("com.news.app", null)
-    advance(10_000)
-    val d = detector.onForegroundChanged("com.miui.hybrid", null)!!
-    assertEquals(EventType.QUICK_APP_LAUNCH, d.type)
-    assertEquals("com.news.app", d.culpritPkg)
+    val d = detector.onForegroundChanged("com.ad.cleaner", null)!!
+    assertEquals(EventType.FLAGGED_LAUNCH, d.type)
     assertTrue(d.autoBlockable)
   }
 
   @Test
-  fun storeRedirectAfterSplashShake_isDetected() {
-    detector.onForegroundChanged("launcher", null)
-    detector.onUserInteraction() // 点了图标打开 App
-    advance(300)
-    assertNull(detector.onForegroundChanged("com.video.app", null))
-    advance(4_000) // 开屏广告期间手一晃
-    val d = detector.onForegroundChanged("com.xiaomi.market", null)!!
-    assertEquals(EventType.STORE_REDIRECT, d.type)
-    assertEquals("com.video.app", d.culpritPkg)
+  fun samePackage_isNotJudgedTwice() {
+    detector.verdicts = mapOf("com.ad.cleaner" to Trust.FLAGGED)
+    detector.onForegroundChanged("com.ad.cleaner", "A")
+    assertNull(detector.onForegroundChanged("com.ad.cleaner", "B"))
   }
 
   @Test
-  fun popupRightAfterUnlock_isUnlockPopup() {
-    detector.onForegroundChanged("launcher", null)
-    advance(60_000)
-    detector.onScreenUnlocked()
-    advance(1_000)
-    assertEquals(EventType.UNLOCK_POPUP, detector.onForegroundChanged("com.ad.wifi", null)!!.type)
-  }
-
-  @Test
-  fun backToPreviousApp_isNotDetected() {
-    detector.onForegroundChanged("com.tencent.mm", null)
-    detector.onUserInteraction()
-    advance(500)
-    detector.onForegroundChanged("com.android.browser", null)
-    advance(30_000) // 按返回键，没有点击事件
+  fun syncForeground_avoidsRejudgingAfterBack() {
+    detector.verdicts = mapOf("com.ad.cleaner" to Trust.FLAGGED)
+    detector.onForegroundChanged("com.ad.cleaner", null)
+    detector.syncForeground("com.tencent.mm")
+    assertEquals("com.tencent.mm", detector.currentPackage)
     assertNull(detector.onForegroundChanged("com.tencent.mm", null))
   }
 
   @Test
-  fun popupAgainAfterBeingSentHome_isStillDetected() {
-    detector.onForegroundChanged("launcher", null)
-    advance(60_000)
-    assertEquals(EventType.UNSOLICITED_LAUNCH, detector.onForegroundChanged("com.ad.cleaner", null)!!.type)
-    advance(800) // 守护执行回桌面
-    assertNull(detector.onForegroundChanged("launcher", null))
-    advance(60_000) // 它又自己弹出来：此时它是「上一个 App」，不能当成用户按返回回到它
-    assertEquals(EventType.UNSOLICITED_LAUNCH, detector.onForegroundChanged("com.ad.cleaner", null)!!.type)
-  }
-
-  @Test
-  fun protectedAndTrustedPackages_areExempt() {
-    detector.verdicts = mapOf("com.bank" to Trust.TRUSTED)
-    detector.onForegroundChanged("launcher", null)
-    advance(60_000)
+  fun protectedAndTrusted_areNeverBlocked() {
+    detector.verdicts = mapOf("com.android.dialer" to Trust.FLAGGED, "com.good" to Trust.TRUSTED)
     assertNull(detector.onForegroundChanged("com.android.dialer", null))
-    advance(60_000)
-    assertNull(detector.onForegroundChanged("com.bank", null))
+    assertNull(detector.onForegroundChanged("self", null))
+    assertNull(detector.onForegroundChanged("com.good", null))
   }
 
   @Test
-  fun suspiciousNotification_matchesKeywordOrFullScreen() {
+  fun overlay_isRecordOnly_andExemptionsApply() {
+    val d = detector.onOverlay("com.ad.cleaner")!!
+    assertEquals(EventType.OVERLAY_POPUP, d.type)
+    assertFalse("别人的悬浮窗按返回关不掉，只记录", d.autoBlockable)
+    detector.verdicts = mapOf("com.good" to Trust.TRUSTED)
+    assertNull(detector.onOverlay("com.good"))
+    assertNull(detector.onOverlay("com.android.systemui"))
+    assertNull(detector.onOverlay("launcher"))
+  }
+
+  @Test
+  fun notification_keywordOrFullScreen() {
     assertEquals(EventType.SUSPICIOUS_NOTIFICATION, detector.onNotification("com.browser", "您的手机中病毒了", false, false)!!.type)
     assertEquals(EventType.SUSPICIOUS_NOTIFICATION, detector.onNotification("com.ad", "看看", true, false)!!.type)
-    assertNull(detector.onNotification("com.clock", "闹钟", true, true))
-    assertNull(detector.onNotification("com.tencent.mm", "晚上吃什么", false, false))
+    assertNull(detector.onNotification("com.ad", "看看", true, true))
+    assertNull(detector.onNotification("com.ad", "普通消息", false, false))
+    assertNull(detector.onNotification("com.android.dialer", "中奖", true, false))
   }
 
   @Test
-  fun shizukuPermissionDialog_isBlockedEvenRightAfterClick() {
-    detector.verdicts = mapOf("com.trusted.tool" to Trust.TRUSTED)
-    detector.onForegroundChanged("launcher", null)
-    detector.onForegroundChanged("com.trusted.tool", null)
-    detector.onUserInteraction()
+  fun notification_autoBlockableOnlyWhenFlagged() {
+    assertFalse(detector.onNotification("com.ad", "中奖", false, false)!!.autoBlockable)
+    detector.verdicts = mapOf("com.ad" to Trust.FLAGGED)
+    assertTrue(detector.onNotification("com.ad", "中奖", false, false)!!.autoBlockable)
+  }
+
+  @Test
+  fun shizukuPrompt_blockedAndCreditedToRequester() {
+    detector.onForegroundChanged("com.ad.cleaner", null)
     val d = detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY)!!
     assertEquals(EventType.PRIVILEGE_REQUEST, d.type)
-    assertEquals("发起请求的 App 即使被信任也要记为元凶", "com.trusted.tool", d.culpritPkg)
+    assertEquals("com.ad.cleaner", d.culpritPkg)
     assertTrue(d.autoBlockable)
   }
 
   @Test
-  fun shizukuPermissionDialog_insideShizukuManager_isBlocked() {
-    detector.onForegroundChanged("launcher", null)
-    detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, "moe.shizuku.manager.MainActivity")
-    detector.onUserInteraction()
+  fun shizukuPrompt_trustedRequesterStillNamed() {
+    detector.verdicts = mapOf("com.good" to Trust.TRUSTED)
+    detector.onForegroundChanged("com.good", null)
     val d = detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY)!!
-    assertEquals(EventType.PRIVILEGE_REQUEST, d.type)
-    assertEquals("看不出是谁发起的，记在 Shizuku 名下", ShizukuExecutor.SHIZUKU_PACKAGE, d.culpritPkg)
+    assertEquals("com.good", d.culpritPkg)
   }
 
   @Test
-  fun shizukuPermissionDialog_allowedDuringMaintenance() {
+  fun shizukuPrompt_fromManagerItself_creditedToShizuku() {
+    detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, "moe.shizuku.manager.MainActivity")
+    val d = detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY)!!
+    assertEquals(ShizukuExecutor.SHIZUKU_PACKAGE, d.culpritPkg)
+  }
+
+  @Test
+  fun shizukuPrompt_allowedDuringMaintenance() {
     detector.privilegeRequestsAllowed = { true }
-    detector.onForegroundChanged("launcher", null)
     detector.onForegroundChanged("self", null)
     assertNull(detector.onForegroundChanged(ShizukuExecutor.SHIZUKU_PACKAGE, ShizukuExecutor.SHIZUKU_PERMISSION_ACTIVITY))
   }

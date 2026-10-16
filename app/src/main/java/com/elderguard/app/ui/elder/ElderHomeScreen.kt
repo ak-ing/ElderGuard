@@ -73,7 +73,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
 enum class GuardStatus(val title: String, val hint: String, val icon: ImageVector) {
-  ON("守护中", "放心用手机，弹窗广告会被自动拦下", Icons.Rounded.VerifiedUser),
+  ON("守护中", "放心用手机，快应用和家人标记的广告会被自动挡掉", Icons.Rounded.VerifiedUser),
   STOPPED("守护已暂停", "手机把守护关掉了，请让家人帮忙打开", Icons.Rounded.GppMaybe),
   OFF("守护未开启", "请让家人帮忙打开守护", Icons.Rounded.GppBad),
 }

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- 自适应图标放在 mipmap-anydpi 时 aapt2 不会编译它（清单里找不到 ic_launcher），只能保留 -v26 -->
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
+</lint>

@@ -3,6 +3,10 @@ package com.elderguard.app.system
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInstaller
+import android.os.Build
+import com.elderguard.app.data.InstalledApp
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.provider.Settings
@@ -24,11 +28,40 @@ class AppInfoResolver(private val context: Context) {
   private val icons = ConcurrentHashMap<String, Bitmap>()
 
   /** 解码图标较慢，调用方应在后台线程调用；结果按包名+尺寸缓存 */
-  fun icon(pkg: String, sizePx: Int): Bitmap? =
-    icons["$pkg@$sizePx"]
-      ?: runCatching { pm.getApplicationIcon(pkg).toBitmap(sizePx, sizePx) }.getOrNull()?.also { icons["$pkg@$sizePx"] = it }
+  fun icon(pkg: String, sizePx: Int): Bitmap? = cachedIcon(pkg, sizePx)
+    ?: runCatching { pm.getApplicationIcon(pkg).toBitmap(sizePx, sizePx) }.getOrNull()?.also { icons["$pkg@$sizePx"] = it }
+
+  /** 只查缓存，可在主线程调用 */
+  fun cachedIcon(pkg: String, sizePx: Int): Bitmap? = icons["$pkg@$sizePx"]
 
   fun isInstalled(pkg: String): Boolean = runCatching { pm.getApplicationInfo(pkg, 0) }.isSuccess
+
+  private val preinstalled = ConcurrentHashMap<String, Boolean>()
+
+  /** 厂商预装（含更新过的预装）：它们的悬浮按钮、悬浮球属于系统功能 */
+  fun isPreinstalled(pkg: String): Boolean =
+    preinstalled.getOrPut(pkg) { runCatching { pm.getApplicationInfo(pkg, 0).isSystem() }.getOrDefault(false) }
+
+  /** 刚装上的 [pkg] 的安装记录 */
+  fun installRecord(pkg: String): InstalledApp {
+    val now = System.currentTimeMillis()
+    if (Build.VERSION.SDK_INT < 30) {
+      @Suppress("DEPRECATION") val installer = runCatching { pm.getInstallerPackageName(pkg) }.getOrNull()
+      return InstalledApp(pkg, now, installer, null)
+    }
+    val info = runCatching { pm.getInstallSourceInfo(pkg) }.getOrNull()
+    val source = if (Build.VERSION.SDK_INT >= 33) info?.packageSource else null
+    return InstalledApp(pkg, now, info?.installingPackageName, source)
+  }
+
+  /** 给家人看的安装来源：安装包文件、下载的安装包，或发起安装的应用（商店、浏览器…）；系统没记录时为 null */
+  fun sourceLabel(app: InstalledApp): String? =
+    when {
+      app.source == PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE -> "安装包文件"
+      app.source == PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE -> "下载的安装包"
+      app.installer != null -> label(app.installer)
+      else -> null
+    }
 
   /** 被维护模式冻结（pm disable-user） */
   fun isFrozen(pkg: String): Boolean = runCatching { !pm.getApplicationInfo(pkg, 0).enabled }.getOrDefault(false)
@@ -39,11 +72,24 @@ class AppInfoResolver(private val context: Context) {
       runCatching { pm.getActivityInfo(ComponentName(pkg, cls), 0) }.isSuccess
     }
 
-  /** 所有桌面 + 当前输入法：它们出现在前台属于正常现象 */
+  /**
+   * 桌面：系统自带的桌面 + 用户设为默认的桌面。
+   * 不能把所有声明 HOME 的应用都算进来：锁屏广告类应用常声明 HOME 来拦主页键，算进来就会被整个放过、体检也查不到；
+   * 设置里开机用的 FallbackHome（优先级为负）也不算
+   */
+  fun homePackages(): Set<String> {
+    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+    val default = pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+    return pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+      .filter { it.activityInfo.packageName == default || it.priority >= 0 && it.activityInfo.applicationInfo.isSystem() }
+      .map { it.activityInfo.packageName }
+      .toSet()
+  }
+
+  private fun ApplicationInfo.isSystem() = flags and ApplicationInfo.FLAG_SYSTEM != 0
+
   fun systemPackages(): Set<String> {
-    val homes =
-      pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_ALL)
-        .map { it.activityInfo.packageName }
+    val homes = homePackages()
     val imes = context.getSystemService(InputMethodManager::class.java).enabledInputMethodList.map { it.packageName }
     val defaultIme =
       Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)

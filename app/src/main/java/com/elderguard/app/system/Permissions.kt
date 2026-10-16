@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -14,13 +15,30 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.elderguard.app.guard.GuardAccessibilityService
 
-enum class PermissionKind(val title: String, val reason: String, val required: Boolean) {
-  ACCESSIBILITY("无障碍服务", "发现弹窗、识别元凶、自动挡掉，核心能力", required = true),
-  NOTIFICATION_LISTENER("通知使用权", "发现假病毒、假中奖之类的通知", required = false),
-  POST_NOTIFICATIONS("发送通知", "守护停止时提醒家人", required = false),
-  BATTERY("不限制耗电", "防止系统省电时把守护关掉", required = false),
-  AUTOSTART("允许自启动", "部分手机（小米/华为/OPPO/vivo）需要，无法自动检测", required = false),
+/** 权限页上的分组 */
+enum class PermissionTier(val title: String) {
+  REQUIRED("需要开启"),
+  RECOMMENDED("建议开启"),
+  /** 守护由系统直接托管，这几项只在部分厂商系统上有用 */
+  IF_STOPPED("守护经常被关掉时再开"),
 }
+
+/** [reason] 写清开了能做什么、不开会少什么 */
+enum class PermissionKind(val title: String, val reason: String, val tier: PermissionTier) {
+  ACCESSIBILITY("无障碍服务", "挡掉快应用和流氓应用、发现悬浮窗、记下新装的应用。不开守护就不工作", PermissionTier.REQUIRED),
+  NOTIFICATION_LISTENER("通知使用权", "发现全屏弹出、假病毒、假中奖的通知。不开就少了通知这一块", PermissionTier.RECOMMENDED),
+  POST_NOTIFICATIONS("发送通知", "守护被关掉时在这台手机上提醒。不开就没人知道守护停了", PermissionTier.RECOMMENDED),
+  BATTERY("不限制耗电", "系统清理后台时不再优先关掉守护", PermissionTier.IF_STOPPED),
+  AUTOSTART("允许自启动", "小米、华为、vivo 等重启后可能需要；无法检测是否已开", PermissionTier.IF_STOPPED),
+  ;
+
+  val required: Boolean
+    get() = tier == PermissionTier.REQUIRED
+}
+
+/** OPPO 系（ColorOS）：开启无障碍后系统自动给自启动权限，不受自启动管理影响 */
+val isColorOs: Boolean
+  get() = Build.MANUFACTURER.lowercase() in setOf("oppo", "oneplus", "realme")
 
 /** null 表示无法检测（如厂商自启动），界面上显示为「请确认」 */
 data class PermissionState(val kind: PermissionKind, val granted: Boolean?)
@@ -39,8 +57,23 @@ class PermissionChecker(private val context: Context) {
             PackageManager.PERMISSION_GRANTED
       PermissionKind.BATTERY ->
         context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
-      PermissionKind.AUTOSTART -> null
+      PermissionKind.AUTOSTART -> if (isColorOs && isAccessibilityEnabled()) true else null
     }
+
+  /** 安装来源说明，写进自检报告：Android 13 起从文件安装的 App 开无障碍会被系统先拦一次 */
+  fun installSourceLabel(): String {
+    if (Build.VERSION.SDK_INT < 33) return "无法检测（Android 13 以下）"
+    val info = runCatching { context.packageManager.getInstallSourceInfo(context.packageName) }.getOrNull() ?: return "无法检测"
+    val source =
+      when (info.packageSource) {
+        PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE -> "本地文件"
+        PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE -> "下载的文件"
+        PackageInstaller.PACKAGE_SOURCE_STORE -> "应用商店"
+        PackageInstaller.PACKAGE_SOURCE_OTHER -> "其他"
+        else -> "未指定"
+      }
+    return "$source（安装器 ${info.installingPackageName ?: "无"}）"
+  }
 
   fun isAccessibilityEnabled(): Boolean {
     val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
@@ -96,6 +129,8 @@ object SettingsNavigator {
     listOf(
         "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
         "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+        "com.oplus.battery" to "com.oplus.startupapp.view.StartupAppListActivity",
+        "com.coloros.safecenter" to "com.coloros.safecenter.startupapp.StartupAppListActivity",
         "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
         "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
       )
