@@ -6,6 +6,8 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -21,30 +23,19 @@ object Motion {
   const val DURATION_MEDIUM = 300
   const val DURATION_LONG = 450
 
-  /** 页面跳转用的时长：整页移动比组件动画长一些，看得清方向 */
+  /** 设置向导分步切换的时长 */
   const val DURATION_PAGE = 400
 
+  /** 页面跳转的时长，和车机桌面（Home 工程）的导航动画一致 */
+  const val DURATION_NAV = 500
+
   /**
-   * 页面推入/退出（和系统打开新页面一致）：
-   * 前进时新页面从右边整页滑入、盖在上面，旧页面向左挪 1/4 并变暗；返回时反过来，旧页面在下面露出来。
-   * 页面都是不透明的 Scaffold，叠在一起不会透出来
+   * 页面跳转（前进、返回、预测性返回都用这一个），沿用车机桌面 Home 工程的导航动画：
+   * 新页面从 0.9 倍放大到原大并淡入，旧页面放大到 1.1 倍并淡出
    */
-  fun push(forward: Boolean): ContentTransform {
-    val spec = tween<IntOffset>(DURATION_PAGE, easing = Emphasized)
-    val fade = tween<Float>(DURATION_PAGE, easing = Emphasized)
-    return if (forward) {
-      ContentTransform(
-        targetContentEnter = slideInHorizontally(spec) { it },
-        initialContentExit = slideOutHorizontally(spec) { -it / 4 } + fadeOut(fade, targetAlpha = 0.5f),
-      )
-    } else {
-      ContentTransform(
-        targetContentEnter = slideInHorizontally(spec) { -it / 4 } + fadeIn(fade, initialAlpha = 0.5f),
-        initialContentExit = slideOutHorizontally(spec) { it },
-        // 返回时露出来的页面在下面，离开的页面盖在上面滑走
-        targetContentZIndex = -1f,
-      )
-    }
+  fun page(): ContentTransform {
+    val spec = tween<Float>(DURATION_NAV)
+    return (scaleIn(spec, initialScale = 0.9f) + fadeIn(spec)) togetherWith (scaleOut(spec, targetScale = 1.1f) + fadeOut(spec))
   }
 
   /** 同一页里的分步内容（设置向导）：整块左右滑动，内容背景透明，所以前后两步不重叠 */
@@ -57,6 +48,4 @@ object Motion {
 
 }
 
-fun <S> AnimatedContentTransitionScope<S>.pushForward(): ContentTransform = Motion.push(forward = true)
-
-fun <S> AnimatedContentTransitionScope<S>.pushBackward(): ContentTransform = Motion.push(forward = false)
+fun <S> AnimatedContentTransitionScope<S>.pageTransition(): ContentTransform = Motion.page()

@@ -124,6 +124,78 @@ object SettingsNavigator {
     startFirst(context, listOf(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", pkg, null))))
   }
 
+  // 下面这些跳转都尽量直达「这个应用」的那一个开关；系统不让进时依次退到列表页、应用详情页
+
+  /** [pkg] 的「显示在其他应用上层」开关 */
+  fun openOverlay(context: Context, pkg: String) {
+    val uri = Uri.fromParts("package", pkg, null)
+    startFirst(
+      context,
+      listOf(
+        // 隐藏入口，直达单个应用；部分系统只许系统应用用，会抛 SecurityException 后退回
+        Intent("android.settings.MANAGE_APP_OVERLAY_PERMISSION", uri),
+        // Android 11 起只进列表，家人在列表里找到它
+        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, uri),
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, uri),
+      ),
+    )
+  }
+
+  /** [pkg] 的通知设置页 */
+  fun openNotifications(context: Context, pkg: String, uid: Int) {
+    startFirst(
+      context,
+      listOf(
+        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+          .putExtra(Settings.EXTRA_APP_PACKAGE, pkg)
+          // 部分厂商系统还读旧的两个参数
+          .putExtra("app_package", pkg)
+          .putExtra("app_uid", uid),
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", pkg, null)),
+      ),
+    )
+  }
+
+  /** [service] 这个无障碍服务的开关页 */
+  fun openAccessibilityService(context: Context, service: ComponentName) {
+    startFirst(
+      context,
+      buildList {
+        if (Build.VERSION.SDK_INT >= 31) {
+          add(Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").putExtra(Intent.EXTRA_COMPONENT_NAME, service.flattenToString()))
+        }
+        add(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+      },
+    )
+  }
+
+  /** [listener] 这个「通知使用权」的开关页 */
+  fun openNotificationListener(context: Context, listener: ComponentName) {
+    startFirst(
+      context,
+      buildList {
+        if (Build.VERSION.SDK_INT >= 30) {
+          add(
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+              .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, listener.flattenToString())
+          )
+        }
+        add(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+      },
+    )
+  }
+
+  /** 设备管理器列表：要先在这里取消它，才能卸载 */
+  fun openDeviceAdmins(context: Context) {
+    startFirst(
+      context,
+      listOf(
+        Intent().setClassName("com.android.settings", "com.android.settings.Settings\$DeviceAdminSettingsActivity"),
+        Intent(Settings.ACTION_SECURITY_SETTINGS),
+      ),
+    )
+  }
+
   /** 各厂商自启动管理页，组件名来自社区经验，需要真机校准 */
   private fun oemAutostartIntents(): List<Intent> =
     listOf(

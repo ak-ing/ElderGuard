@@ -4,6 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.provider.Settings
 import androidx.core.net.toUri
 import com.elderguard.app.AppContainer
 import com.elderguard.app.BuildConfig
@@ -109,6 +113,9 @@ class SelfTester(private val context: Context, private val c: AppContainer) {
         }
         appendLine("安装来源：${c.permissions.installSourceLabel()}")
         appendLine()
+        appendLine("【振动】")
+        appendVibrator()
+        appendLine()
         appendLine("【自检结果】")
         results.forEach { appendLine("${it.id.title}：${it.status.label} - ${it.detail}") }
         appendLine()
@@ -143,6 +150,37 @@ class SelfTester(private val context: Context, private val c: AppContainer) {
         append(readLog())
       }
     }
+
+  /** 密码键盘没有震感时用来判断：有没有马达、支不支持预设效果、系统振动设置 */
+  private fun StringBuilder.appendVibrator() {
+    val vibrator: Vibrator? =
+      if (Build.VERSION.SDK_INT >= 31) context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+      else @Suppress("DEPRECATION") context.getSystemService(Vibrator::class.java)
+    if (vibrator == null) {
+      appendLine("取不到振动器")
+      return
+    }
+    appendLine("有振动马达：${if (vibrator.hasVibrator()) "是" else "否"}")
+    appendLine("可调强度：${if (vibrator.hasAmplitudeControl()) "是" else "否"}")
+    if (Build.VERSION.SDK_INT >= 30) {
+      val support = vibrator.areEffectsSupported(VibrationEffect.EFFECT_CLICK, VibrationEffect.EFFECT_HEAVY_CLICK)
+      appendLine(
+        "预设效果：" +
+          listOf("点击", "重击").zip(support.toList()).joinToString("、") { (n, s) ->
+            "$n${when (s) { Vibrator.VIBRATION_EFFECT_SUPPORT_YES -> "支持"; Vibrator.VIBRATION_EFFECT_SUPPORT_NO -> "不支持"; else -> "未知" }}"
+          }
+      )
+    }
+    if (Build.VERSION.SDK_INT >= 31) {
+      appendLine("马达数量：${context.getSystemService(VibratorManager::class.java)?.vibratorIds?.size ?: 0}")
+    }
+    // 系统振动设置（读不到的厂商自定义项写「无」）
+    listOf("haptic_feedback_enabled", "haptic_feedback_intensity", "media_vibration_intensity", "notification_vibration_intensity")
+      .forEach { key ->
+        val value = runCatching { Settings.System.getString(context.contentResolver, key) }.getOrNull()
+        appendLine("$key：${value ?: "无"}")
+      }
+  }
 
   private fun StringBuilder.appendHandlers(list: List<Handler>) {
     if (list.isEmpty()) appendLine("无")

@@ -14,8 +14,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
-import com.elderguard.app.theme.pushBackward
-import com.elderguard.app.theme.pushForward
+import com.elderguard.app.theme.pageTransition
 import com.elderguard.app.ui.elder.ElderHomeScreen
 import com.elderguard.app.ui.family.FamilyHomeScreen
 import com.elderguard.app.ui.family.MaintenanceScreen
@@ -73,10 +72,10 @@ fun AppNavigation(setupDone: Boolean) {
     onBack = { backStack.removeLastOrNull() },
     // 每个页面独立的 ViewModel：出栈即销毁，再次进入是全新状态（如密码页不残留输入）
     entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-    // 整页推入：前进时新页面从右边滑入盖上来，返回（含预测性返回手势）时当前页向右滑走、露出上一页
-    transitionSpec = { pushForward() },
-    popTransitionSpec = { pushBackward() },
-    predictivePopTransitionSpec = { pushBackward() },
+    // 和车机桌面一样：新页面放大淡入、旧页面放大淡出；返回（含预测性返回手势）同样
+    transitionSpec = { pageTransition() },
+    popTransitionSpec = { pageTransition() },
+    predictivePopTransitionSpec = { pageTransition() },
     entryProvider =
       entryProvider {
         entry<Setup> {

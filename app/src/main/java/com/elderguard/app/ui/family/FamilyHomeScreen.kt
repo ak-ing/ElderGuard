@@ -9,7 +9,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -250,6 +253,9 @@ fun FamilyHomeScreen(
   val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
   var selected by remember { mutableStateOf<CulpritRow?>(null) }
   var selectedInstall by remember { mutableStateOf<InstallRow?>(null) }
+  var culpritsExpanded by rememberSaveable { mutableStateOf(false) }
+  var installsExpanded by rememberSaveable { mutableStateOf(false) }
+  var eventsExpanded by rememberSaveable { mutableStateOf(false) }
   val snackbar = remember { SnackbarHostState() }
   ShowMessages(vm.actions.messages, snackbar)
 
@@ -273,26 +279,29 @@ fun FamilyHomeScreen(
         item(key = "overview") {
           Overview(s.stats, onFix = { openPermission(PermissionKind.ACCESSIBILITY) }, modifier = ItemModifier.animateItem())
         }
+        // 工具：体检、自检、维护模式放一组，不被下面越来越长的列表挤到底
         item(key = "scan") {
           EntryItem(
             Icons.Rounded.HealthAndSafety,
             "手机体检",
             "找出可能在弹广告、难卸载的应用",
-            segmentShape(0, 2),
+            segmentShape(0, 3),
             onOpenScan,
             ItemModifier.padding(top = 12.dp).animateItem(),
           )
         }
         item(key = "selfTest") {
-          EntryItem(Icons.AutoMirrored.Rounded.FactCheck, "守护自检", "试一试守护在这台手机上能不能挡掉快应用", segmentShape(1, 2), onOpenSelfTest, ItemModifier.animateItem())
+          EntryItem(Icons.AutoMirrored.Rounded.FactCheck, "守护自检", "试一试守护在这台手机上能不能挡掉快应用", segmentShape(1, 3), onOpenSelfTest, ItemModifier.animateItem())
         }
+        item(key = "maint") { MaintenanceItem(s.privilege, s.maintenanceEndsAt, onOpenMaintenance, segmentShape(2, 3), ItemModifier.animateItem()) }
 
+        // 列表默认只显示前几条，「查看全部」展开，守护方式、权限等设置不用滚很远
         sectionHeader("culpritsHeader", "需要留意的应用", "近 7 天弹过悬浮窗、发过可疑通知等。点一下可以标记或处理")
         if (s.culprits.isEmpty()) {
           item(key = "culpritsEmpty", contentType = "empty") { EmptyHint("近 7 天没有记录", ItemModifier.animateItem()) }
         } else {
-          itemsIndexed(s.culprits, key = { _, row -> "culprit-${row.stat.culpritPkg}" }, contentType = { _, _ -> "culprit" }) { i, row ->
-            CulpritItem(row, segmentShape(i, s.culprits.size), onClick = { selected = row }, modifier = ItemModifier.animateItem())
+          collapsible("culprit", s.culprits, PREVIEW_COUNT, culpritsExpanded, { culpritsExpanded = !culpritsExpanded }, { "culprit-${it.stat.culpritPkg}" }) { row, shape ->
+            CulpritItem(row, shape, onClick = { selected = row }, modifier = ItemModifier.animateItem())
           }
         }
 
@@ -300,8 +309,8 @@ fun FamilyHomeScreen(
         if (s.installs.isEmpty()) {
           item(key = "installsEmpty", contentType = "empty") { EmptyHint("近 30 天没有新装应用", ItemModifier.animateItem()) }
         } else {
-          itemsIndexed(s.installs, key = { _, row -> "install-${row.app.pkg}" }, contentType = { _, _ -> "install" }) { i, row ->
-            InstallItem(row, segmentShape(i, s.installs.size), onClick = { selectedInstall = row }, modifier = ItemModifier.animateItem())
+          collapsible("install", s.installs, PREVIEW_COUNT, installsExpanded, { installsExpanded = !installsExpanded }, { "install-${it.app.pkg}" }) { row, shape ->
+            InstallItem(row, shape, onClick = { selectedInstall = row }, modifier = ItemModifier.animateItem())
           }
         }
 
@@ -316,15 +325,12 @@ fun FamilyHomeScreen(
           PermissionGroup(s.permissions, startExpanded = s.requiredMissing, onOpen = openPermission, modifier = ItemModifier.animateItem())
         }
 
-        sectionHeader("maintHeader", "维护模式")
-        item(key = "maint") { MaintenanceItem(s.privilege, s.maintenanceEndsAt, onOpenMaintenance, ItemModifier.animateItem()) }
-
         sectionHeader("eventsHeader", "最近记录")
         if (s.events.isEmpty()) {
           item(key = "eventsEmpty", contentType = "empty") { EmptyHint("暂无记录", ItemModifier.animateItem()) }
         } else {
-          itemsIndexed(s.events, key = { _, row -> "event-${row.event.id}" }, contentType = { _, _ -> "event" }) { i, row ->
-            EventItem(row, segmentShape(i, s.events.size), ItemModifier.animateItem())
+          collapsible("event", s.events, EVENT_PREVIEW_COUNT, eventsExpanded, { eventsExpanded = !eventsExpanded }, { "event-${it.event.id}" }) { row, shape ->
+            EventItem(row, shape, ItemModifier.animateItem())
           }
         }
       }
@@ -355,6 +361,54 @@ fun FamilyHomeScreen(
       onAction = { vm.actions.run(row.stat.culpritPkg, row.label, it) },
       install = install,
     )
+  }
+}
+
+private const val PREVIEW_COUNT = 3
+private const val EVENT_PREVIEW_COUNT = 5
+
+/**
+ * 分段列表：没展开时只显示前 [limit] 条，末尾一行「查看全部 N 个 / 收起」，和列表同一组圆角。
+ * 条数不超过 [limit] 时没有这一行
+ */
+private fun <T> LazyListScope.collapsible(
+  type: String,
+  list: List<T>,
+  limit: Int,
+  expanded: Boolean,
+  onToggle: () -> Unit,
+  key: (T) -> String,
+  content: @Composable LazyItemScope.(T, Shape) -> Unit,
+) {
+  val foldable = list.size > limit
+  val shown = if (foldable && !expanded) list.take(limit) else list
+  val total = shown.size + if (foldable) 1 else 0
+  itemsIndexed(shown, key = { _, row -> key(row) }, contentType = { _, _ -> type }) { i, row -> content(row, segmentShape(i, total)) }
+  if (foldable) {
+    item(key = "$type-more", contentType = "more") {
+      MoreItem(if (expanded) "收起" else "查看全部 ${list.size} 个", expanded, segmentShape(total - 1, total), onToggle, ItemModifier.animateItem())
+    }
+  }
+}
+
+@Composable
+private fun MoreItem(text: String, expanded: Boolean, shape: Shape, onClick: () -> Unit, modifier: Modifier = Modifier) {
+  val rotation by animateFloatAsState(if (expanded) 180f else 0f, label = "more")
+  Surface(modifier.padding(vertical = 1.dp), shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Row(
+      Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp),
+      horizontalArrangement = Arrangement.Center,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+      Spacer(Modifier.width(4.dp))
+      Icon(
+        Icons.Rounded.ExpandMore,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = rotation },
+      )
+    }
   }
 }
 
@@ -576,11 +630,11 @@ private fun PermissionGroup(
 }
 
 @Composable
-private fun MaintenanceItem(status: PrivilegeStatus, endsAt: Long?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun MaintenanceItem(status: PrivilegeStatus, endsAt: Long?, onClick: () -> Unit, shape: Shape, modifier: Modifier = Modifier) {
   val active = endsAt != null
   Surface(
-    modifier,
-    shape = MaterialTheme.shapes.large,
+    modifier.padding(vertical = 1.dp),
+    shape = shape,
     color = if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
   ) {
     ListItem(
@@ -591,11 +645,11 @@ private fun MaintenanceItem(status: PrivilegeStatus, endsAt: Long?, onClick: () 
         if (active) TonalIcon(Icons.Rounded.Build, container = MaterialTheme.colorScheme.primary, content = MaterialTheme.colorScheme.onPrimary)
         else TonalIcon(Icons.Rounded.Build)
       },
-      headlineContent = { Text(if (active) "正在维护" else "直接处理流氓应用") },
+      headlineContent = { Text(if (active) "正在维护" else "维护模式（可选）") },
       supportingContent = {
         Text(
           if (endsAt != null) "点开可疑应用即可冻结、卸载 · ${clockTime(endsAt)} 自动结束"
-          else "借助 Shizuku 直接冻结、卸载、收回权限，用完自动关闭无线调试"
+          else "需要 Shizuku，适合会用的家人：一键冻结、卸载"
         )
       },
       trailingContent = {

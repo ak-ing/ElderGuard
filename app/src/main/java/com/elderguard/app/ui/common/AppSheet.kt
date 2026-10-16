@@ -61,8 +61,17 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
+import com.elderguard.app.container
 import com.elderguard.app.core.Trust
+import com.elderguard.app.system.AppControls
+import com.elderguard.app.system.SettingsNavigator
 import com.elderguard.app.theme.AppTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -235,6 +244,39 @@ fun AppSheet(
         details()
         Spacer(Modifier.height(8.dp))
       }
+      // 不用 Shizuku：直接跳到系统里「这个应用」的那个开关，家人关掉即可。只列它真开着的
+      val context = LocalContext.current
+      val controls by
+        produceState<AppControls?>(null, pkg) { value = withContext(Dispatchers.IO) { context.container.appInfo.controlsOf(pkg) } }
+      val c = controls
+      if (installed && !maintaining && c != null) {
+        SheetSectionTitle("关掉它的能力")
+        if (c.deviceAdmin) {
+          SheetAction(Icons.Rounded.AdminPanelSettings, "取消它的设备管理器", "不取消就卸载不掉；在列表里找到它，点进去停用") {
+            act { SettingsNavigator.openDeviceAdmins(context) }
+          }
+        }
+        c.accessibility?.let { service ->
+          SheetAction(Icons.Rounded.Accessibility, "关掉它的无障碍", "它能读屏幕、代替长辈点击") {
+            act { SettingsNavigator.openAccessibilityService(context, service) }
+          }
+        }
+        if (c.overlay) {
+          // 多数系统只让进「显示在其他应用上层」的总列表，告诉家人找谁
+          SheetAction(Icons.Rounded.Layers, "关掉它的悬浮窗", "在列表里找到「$label」，关掉；之后它不能再盖在别的应用上面弹窗") {
+            act { SettingsNavigator.openOverlay(context, pkg) }
+          }
+        }
+        c.notificationListener?.let { listener ->
+          SheetAction(Icons.Rounded.NotificationsActive, "关掉它读通知", "它能看到所有通知，包括验证码") {
+            act { SettingsNavigator.openNotificationListener(context, listener) }
+          }
+        }
+        SheetAction(Icons.Rounded.NotificationsOff, "关掉它的通知", "进入它的通知设置，关掉「允许通知」") {
+          act { SettingsNavigator.openNotifications(context, pkg, c.uid) }
+        }
+        Spacer(Modifier.height(8.dp))
+      }
       if (maintaining) {
         SheetSectionTitle("直接处理 · 维护模式")
         maintenanceActions.forEach { action ->
@@ -261,7 +303,7 @@ fun AppSheet(
         if (trust != null) {
           SheetAction(Icons.AutoMirrored.Rounded.Undo, "撤销标记", "恢复为待确认") { act { onTrust(null) } }
         }
-        SheetAction(Icons.Rounded.Settings, "应用设置", "关闭通知、悬浮窗等权限") { act(onDetails) }
+        SheetAction(Icons.Rounded.Settings, "应用设置", "耗电、后台运行、自启动、存储") { act(onDetails) }
         if (maintenanceActions.isEmpty()) {
           SheetAction(Icons.Rounded.DeleteOutline, "卸载", null, tint = MaterialTheme.colorScheme.error) { act(onUninstall) }
         }

@@ -14,6 +14,15 @@ import android.view.inputmethod.InputMethodManager
 import androidx.core.graphics.drawable.toBitmap
 import java.util.concurrent.ConcurrentHashMap
 
+/** 某个应用开着的能力：[accessibility]、[notificationListener] 是它开着的那个组件，null 表示没开 */
+data class AppControls(
+  val overlay: Boolean,
+  val accessibility: ComponentName?,
+  val notificationListener: ComponentName?,
+  val deviceAdmin: Boolean,
+  val uid: Int,
+)
+
 /** 包名 → 名称/图标，以及判定需要的系统信息查询 */
 class AppInfoResolver(private val context: Context) {
   private val pm = context.packageManager
@@ -69,6 +78,41 @@ class AppInfoResolver(private val context: Context) {
       app.installer != null -> label(app.installer)
       else -> null
     }
+
+  /** [pkg] 当前开着的、家人可以去系统设置里关掉的能力；决定应用面板里列出哪些跳转 */
+  fun controlsOf(pkg: String): AppControls {
+    val info = runCatching { pm.getPackageInfo(pkg, PackageManager.GET_PERMISSIONS) }.getOrNull()
+    val requestsOverlay = info?.requestedPermissions.orEmpty().contains(android.Manifest.permission.SYSTEM_ALERT_WINDOW)
+    val uid = info?.applicationInfo?.uid ?: -1
+    // 悬浮窗权限是否真的开着；读不到时只要申请了就列出来
+    val overlayOn =
+      requestsOverlay &&
+        (Build.VERSION.SDK_INT < 29 ||
+          runCatching {
+              context.getSystemService(android.app.AppOpsManager::class.java)
+                .unsafeCheckOpNoThrow(android.app.AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW, uid, pkg)
+            }
+            .map { it == android.app.AppOpsManager.MODE_ALLOWED }
+            .getOrDefault(true))
+    fun enabled(key: String) =
+      runCatching { Settings.Secure.getString(context.contentResolver, key) }
+        .getOrNull()
+        .orEmpty()
+        .split(':')
+        .mapNotNull { ComponentName.unflattenFromString(it) }
+        .firstOrNull { it.packageName == pkg }
+    val admin =
+      runCatching { context.getSystemService(android.app.admin.DevicePolicyManager::class.java).activeAdmins.orEmpty() }
+        .getOrDefault(emptyList())
+        .any { it.packageName == pkg }
+    return AppControls(
+      overlay = overlayOn,
+      accessibility = enabled(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES),
+      notificationListener = enabled("enabled_notification_listeners"),
+      deviceAdmin = admin,
+      uid = uid,
+    )
+  }
 
   /** 被维护模式冻结（pm disable-user） */
   fun isFrozen(pkg: String): Boolean = runCatching { !pm.getApplicationInfo(pkg, 0).enabled }.getOrDefault(false)

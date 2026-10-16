@@ -10,6 +10,8 @@
     <!-- 密码键盘震动；普通权限，安装即获得 -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 挡掉快应用、流氓应用后结束它已在后台的进程，免得马上又弹出来；普通权限，安装即获得 -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
 
     <application
         android:name=".ElderGuardApp"

@@ -1,6 +1,7 @@
 package com.elderguard.app.guard
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -172,24 +173,48 @@ class GuardAccessibilityService : AccessibilityService() {
     return windowPackages[app.id] ?: runCatching { app.root?.packageName?.toString() }.getOrNull()
   }
 
-  /** 先「返回」；部分广告页会拦截返回键，稍后它若仍在前台就回到桌面 */
+  /** 屏幕上所有应用窗口（整页界面、对话框）所属的 App */
+  private fun appWindowPackages(): Set<String> {
+    val list = runCatching { windows }.getOrNull() ?: return emptySet()
+    return list
+      .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+      .mapNotNull { windowPackages[it.id] ?: runCatching { it.root?.packageName?.toString() }.getOrNull() }
+      .toSet()
+  }
+
+  /**
+   * 先「返回」；很多快应用游戏、广告页会吃掉返回键，稍后它若还在屏幕上就回到桌面。
+   * 退到后台后再结束它的进程，免得它马上又弹出来（在前台时普通应用结束不了它）
+   */
   private fun goBack(detection: Detection): Boolean {
+    val target = detection.targetPkg
     if (!performGlobalAction(GLOBAL_ACTION_BACK)) return false
     main.postDelayed(
       {
         // 回到已有界面时不一定有窗口切换事件，以最上层的应用窗口为准；读不到时才用判定器记录的前台
         val foreground = foregroundPackage() ?: detector.currentPackage
-        if (foreground != detection.targetPkg) {
+        if (foreground != target && target !in appWindowPackages()) {
           // 已经退回上一个界面：同步给判定器（通知栏等系统窗口不算前台 App）
           foreground?.takeUnless { it == SYSTEM_UI }?.let(detector::syncForeground)
+          main.postDelayed({ killInBackground(target) }, KILL_DELAY_MS)
         } else {
-          Log.i(TAG, "返回无效，回到桌面：${detection.targetPkg}")
+          Log.i(TAG, "返回无效，回到桌面：$target")
+          EventTrace.add("返回无效，回到桌面 $target")
           performGlobalAction(GLOBAL_ACTION_HOME)
+          main.postDelayed({ killInBackground(target) }, KILL_DELAY_MS)
         }
       },
       BACK_VERIFY_MS,
     )
     return true
+  }
+
+  /** 结束已经退到后台的 [pkg]；还在前台时系统不让结束，什么也不发生 */
+  private fun killInBackground(pkg: String) {
+    if (pkg == packageName || pkg in appWindowPackages()) return
+    runCatching { getSystemService(ActivityManager::class.java).killBackgroundProcesses(pkg) }
+      .onSuccess { EventTrace.add("结束进程 $pkg") }
+      .onFailure { Log.w(TAG, "结束进程失败：$pkg", it) }
   }
 
   private fun recordInstall(pkg: String) {
@@ -227,6 +252,8 @@ class GuardAccessibilityService : AccessibilityService() {
   companion object {
     private const val TAG = "ElderGuard"
     private const val BACK_VERIFY_MS = 800L
+    /** 回到桌面后等它真正进入后台再结束 */
+    private const val KILL_DELAY_MS = 600L
     private const val MAX_RESOLVE_TRIES = 5
     private const val SYSTEM_UI = "com.android.systemui"
     private val _running = MutableStateFlow(false)

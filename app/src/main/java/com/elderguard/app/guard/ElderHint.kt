@@ -15,7 +15,14 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.compose.ui.graphics.toArgb
 import com.elderguard.app.R
+import com.elderguard.app.theme.InverseOnSurfaceDark
+import com.elderguard.app.theme.InverseOnSurfaceLight
+import com.elderguard.app.theme.InversePrimaryDark
+import com.elderguard.app.theme.InversePrimaryLight
+import com.elderguard.app.theme.InverseSurfaceDark
+import com.elderguard.app.theme.InverseSurfaceLight
 
 /**
  * 拦截后给长辈的短提示：无障碍浮层（无需悬浮窗权限），不可点击、不抢焦点，2.5 秒后淡出。
@@ -72,9 +79,10 @@ class ElderHint(private val service: AccessibilityService) {
   private fun build(text: String): View {
     val dark = (service.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
       android.content.res.Configuration.UI_MODE_NIGHT_YES
-    val bg = if (dark) 0xFFDDE4E2.toInt() else 0xFF2B3231.toInt()
-    val fg = if (dark) 0xFF2B3231.toInt() else 0xFFECF2F0.toInt()
-    val accent = if (dark) 0xFF006A63.toInt() else 0xFF82D5CB.toInt()
+    // 同 Material 3 Snackbar：反色底 + 反色主色图标
+    val bg = (if (dark) InverseSurfaceDark else InverseSurfaceLight).toArgb()
+    val fg = (if (dark) InverseOnSurfaceDark else InverseOnSurfaceLight).toArgb()
+    val accent = (if (dark) InversePrimaryDark else InversePrimaryLight).toArgb()
     return LinearLayout(service).apply {
       orientation = LinearLayout.HORIZONTAL
       gravity = Gravity.CENTER_VERTICAL
