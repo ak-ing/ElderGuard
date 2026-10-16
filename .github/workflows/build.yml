@@ -80,14 +80,14 @@ jobs:
           fi
           echo "file=$file" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.apk.outputs.file }}
           path: ${{ steps.apk.outputs.file }}
 
       - name: 上传测试报告
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: reports
           path: app/build/reports/
